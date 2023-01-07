@@ -16,7 +16,6 @@ def IsVideoShort(Id):
 	Info = youtube_dl.YoutubeDL().extract_info(Id, download=False)
 	w, h = Info['width'], Info['height']
 	if Info['duration'] < 60 and w < h and w/h == 0.5625: # == 9:16
-		print(True)
 		return True
 	return False
 
