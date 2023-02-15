@@ -1,38 +1,41 @@
 #!/usr/bin/env python3
 
 # *----------------------------------------------------------------------* #
-# | [ ShioriFeed 🔖 ]                                                    | #
+# | [ ShioriFeed 🔖 (OctoSpacc) ]                                        | #
 # | Simple service for getting an Atom/RSS feed from your Shiori profile | #
-# | v. 2023-02-13-r3, OctoSpacc                                          | #
+# *----------------------------------------------------------------------* #
+Version = '2023-02-15'
 # *----------------------------------------------------------------------* #
 
-# *---------------------------------* #
-# | Configuration                   | #
-# *---------------------------------* #
+# *-------------------------------------------* #
+# | Configuration                             | #
+# *-------------------------------------------* #
 Host = ('localhost', 8176)
 Debug = False
-# *---------------------------------* #
+UserAgent = f'ShioriFeed v{Version} at {Host[0]}'
+# *-------------------------------------------* #
 
 # External Requirements: urllib3
 
 # TODO:
+# - Cheking if Content mode content is actually present, otherwise fall back to Archive mode or original link (using API data is unreliable it seems)
 # - Atom feed
 # - Actually valid RSS
-# - Include content of links into XML
-# - Include other XML metadata (author)
+# - XML stylesheet
+# - Filtering (tags, etc.)
 # - Write privacy policy
 # - Fix the URL copy thing
+# - Minification
 
 # *-------------------------------------------------------------------------* #
 
 import traceback
 import json
-from base64 import urlsafe_b64decode as b64decode, urlsafe_b64encode as b64encode
+from base64 import urlsafe_b64decode as b64UrlDecode, urlsafe_b64encode as b64UrlEncode, standard_b64encode as b64Encode
 from html import escape as HtmlEscape
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.request import urlopen, Request
-from urllib.error import HTTPError, URLError
 import threading
 
 HomeTemplate = '''\
@@ -52,17 +55,26 @@ HomeTemplate = '''\
 		<meta property="og:title" content="ShioriFeed 🔖"/>
 		<meta property="og:description" content="Simple service for getting an Atom/RSS feed from your Shiori profile"/>
 		<style>
+			:root {
+				--cFore0: #232323;
+				--cFore1: #292929;
+				--cAccent: #f44336;
+				--cBack0: #e9e9e9;
+				--cBack1: #ffffff;
+				/*--cGray: #c9c9c9;*/
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--cFore0: #ffffff;
+					--cFore1: #eeeeee;
+					--cBack0: #292929;
+					--cBack1: #1f1f1f;
+					--cGray: #606060;
+				}
+			}
 			* { box-sizing: border-box; }
-			body {
-				color: #232323;
-				background: #eeeeee;
-				font-family: "Source Sans Pro", sans-serif;
-				margin: 0px;
-				padding-top: 24px;
-				padding-bottom: 24px;
-				padding-left: 10%;
-				padding-right: 10%;
-				word-break: break-word;
+			.Underline { text-decoration: underline; }
+			.NoSelect {
 				user-select: none;
 				-ms-user-select: none;
 				-moz-user-select: none;
@@ -70,26 +82,41 @@ HomeTemplate = '''\
 				-webkit-user-select: none;
 				-webkit-touch-callout: none;
 			}
-			a { color: #f44336; }
+			body {
+				color: var(--cFore0);
+				background: var(--cBack0);
+				font-family: "Source Sans Pro", sans-serif;
+				margin: 0px;
+				padding-top: 24px;
+				padding-bottom: 24px;
+				padding-left: 10%;
+				padding-right: 10%;
+				word-break: break-word;
+			}
+			a { color: var(--cAccent); }
 			form > label { padding: 8px; }
 			form > label > span { padding-bottom: 4px; }
 			form > label, form > label > span {
 				display: inline-block;
 				width: 100%;
 			}
-			input {
-				width: 100%;
-				height: 2em;
-			}
-			input[type="submit"] { font-size: large; }
 			textarea {
 				width: 100%;
 				height: 5em;
 				font-size: large;
 				resize: none;
 			}
+			input { height: 2em; }
+			input[type="submit"] { font-size: large; }
+			input, textarea, details { border-radius: 2px; }
+			input, textarea {
+				width: 100%;
+				color: var(--cFore1);
+				background: var(--cBack1);
+				border: none;
+			}
 			details {
-				background: lightgray;
+				background: var(--cBack1)/*var(--cGray)*/;
 				padding: 8px;
 			}
 			details > summary > h4 { display: inline; }
@@ -99,71 +126,72 @@ HomeTemplate = '''\
 				height: 0.25em;
 				margin: 0.25em;
 				vertical-align: middle;
-				background: #292929;
-			}
-			@media (prefers-color-scheme: dark) {
-				body {
-					color: #ffffff;
-					background: #292929;
-				}
-				span.Separator { background: #eeeeee; }
+				background: var(--cFore1);
 			}
 			/* {{PostCss}} */
 		</style>
 	</head>
 	<body>
-		<h2>ShioriFeed 🔖</h2>
-		<p class="PostObscure">
-			Enter the details of your account on a
-			<a href="https://github.com/go-shiori/">Shiori</a>
-			server to get an Atom/RSS feed link.
-		</p>
-		<p class="PostObscure">
-			<small>Note: still a work-in-progress!</small>
-		</p>
-		<br />
-		<!-- {{PostResult}} -->
-		<p class="PostObscure">
-			<form action="./" method="POST">
-				<label class="PostObscure">
-					<span>Server <small>(must start with protocol prefix)</small>:</span>
-					<input type="text" name="Remote" placeholder="http[s]://..."/>
-				</label>
-				<br />
-				<label class="PostObscure">
-					<span>Username:</span>
-					<input type="text" name="Username" placeholder="erre"/>
-				</label>
-				<br />
-				<label class="PostObscure">
-					<span>Password:</span>
-					<input type="password" name="Password" placeholder="**********"/>
-				</label>
-				<br />
-				<label class="PostObscure">
-					<span>&nbsp;</span>
-					<input type="submit" value="Submit"/>
-				</label>
-			</form>
-		</p>
-		<br />
+		<div class="NoSelect">
+			<h2>ShioriFeed 🔖</h2>
+			<p class="PostObscure">
+				Enter the details of your account on a
+				<a href="https://github.com/go-shiori/">Shiori</a>
+				server to get an Atom/RSS feed link.
+			</p>
+			<p class="PostObscure">
+				<small>Note: still a work-in-progress!</small>
+			</p>
+			<br />
+			<!-- {{PostResult}} -->
+			<p class="PostObscure">
+				<form action="./" method="POST">
+					<label class="PostObscure">
+						<span>Server <small>(must start with protocol prefix)</small>:</span>
+						<input type="text" name="Remote" placeholder="http[s]://..."/>
+					</label>
+					<br />
+					<label class="PostObscure">
+						<span>Username:</span>
+						<input type="text" name="Username" placeholder="erre"/>
+					</label>
+					<br />
+					<label class="PostObscure">
+						<span>Password:</span>
+						<input type="password" name="Password" placeholder="**********"/>
+					</label>
+					<br />
+					<label class="PostObscure">
+						<span>&nbsp;</span>
+						<input type="submit" value="Submit"/>
+					</label>
+				</form>
+			</p>
+			<br />
+		</div>
 		<!--
-		<p>
-			<details>
-				<summary>
-					<h4>Privacy Policy</h4>
-				</summary>
-				<p>
-				<ul>
-					<li>
-						
-					</li>
-				</ul>
-			</details>
-		</p>
+			NOTE TO SELF-HOSTERS:
+			You should probably either adjust or remove this :)
+			For sure you should at least write your own domain.
 		-->
 		<p>
-			<span>v. 2023-02-13-r3</span>
+			<details>
+				<summary class="NoSelect">
+					<!-- Change the domain if self-hosting! -->
+					<h4>Privacy Policy</h4>
+					(applies to <em class="Underline">ShioriFeed.Octt.eu.org</em>)
+				</summary>
+				<!--<ul>
+					<li>-->
+						I still have to write this... tough luck.
+						I'm not yet actively inviting anyone to use this instance right now,
+						if you're worried about your security then just host the software yourself.
+				<!--	</li>
+				</ul>-->
+			</details>
+		</p>
+		<p class="NoSelect">
+			<span>v. {{Version}}</span>
 			<span class="Separator"></span>
 			<a href="https://gitlab.com/octospacc/Snippets/-/blob/main/ShioriFeed.py">Source Code</a>
 		</p>
@@ -186,42 +214,50 @@ HomeTemplate = '''\
 		</script>
 	</body>
 </html>
-'''
+'''.replace('{{Version}}', Version)
+
+def RetDebugIf():
+	return f'\n\n{traceback.format_exc()}' if Debug else ''
 
 def SessionHash(Remote, Username, Password):
 	return f'{hash(Remote)}{hash(Username)}{hash(Password)}'
 
-#def GetContent(Id, Remote, Session):
-#	try:
-#		
-#	except Exception:
-#		
-
-def MkFeed(Data, Remote, Username, Password, Type="RSS"):
+def MkFeed(Data, Remote, Username, Session, Type='RSS'):
 	Feed = ''
 	Date = Data['bookmarks'][0]['modified'] if Data['bookmarks'] else ''
 	for Mark in Data['bookmarks']:
-		#if Mark['hasContent']:
-		Link = f"{Remote}/bookmark/{Mark['id']}/content"
-		ImgLink = f"{Remote}/bookmark/{Mark['id']}/thumb"
-		Cover = f'<![CDATA[<a href="{Link}"><img src="{ImgLink}"/></a>]]>' if Mark['imageURL'] else ''
-		#elif Mark['hasArchive']:
-		#	Link = f"{Remote}/bookmark/{Mark['id']}/archive"
-		#else:
-		#	Link = Mark['url']
-		Feed += f'''
+		Id = Mark['id']
+		Link = f'{Remote}/bookmark/{Id}/content'
+		# NOTE: when shiori issue #578 is fixed, this should use a thumb URL from the original article HTML to cope with private bookmarks
+		Cover = f'<![CDATA[<a href="{Link}"><img src="{Remote}/bookmark/{Id}/thumb"/></a>]]>' if Mark['imageURL'] else ''
+		# Not so sure about this chief, downloading and embedding EVERY cover image into the XML is slow (~8s per 1 req) and traffic-hungry (~10 simultaneous requests are enough to temporarily DoS the Raspi)
+		#ImgData = GetContent(Remote, f'bookmark/{Id}/thumb', Session) if Mark['imageURL'] else None
+		#Cover = f'<![CDATA[<a href="{Link}"><img src="data:{ImgData["Content-Type"]};base64,{b64Encode(ImgData["Body"]).decode()}"/></a><br /><br />]]>' if ImgData else ''
+		Content = f'{HtmlEscape(GetContent(Remote, f"bookmark/{Id}/content", Session)["Body"].decode())}'
+		if Type == 'Atom':
+			Feed += f'''
+
+			'''
+		elif Type == 'RSS':
+			Feed += f'''
 <item>
 	<title>{HtmlEscape(Mark['title'])}</title>
 	<description>{Cover}{HtmlEscape(Mark['excerpt'])}</description>
-	<!-- <content:encoded>HtmlEscape(We try fetching the content here)</content:encoded> -->
+	<author>{Mark['author']}</author>
+	<content:encoded type="text/html">{Content}</content:encoded>
 	<link>{Link}</link>
 	<pubDate>{Mark['modified']}</pubDate>
-	<guid isPermaLink="false">{Mark['id']}</guid>
+	<guid isPermaLink="false">{Link}</guid>
 </item>
+			'''
+	if Type == 'Atom':
+		return f'''\
+
 		'''
-	return f'''\
-<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/">
+	elif Type == 'RSS':
+		return f'''\
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
 	<channel>
 		<title>ShioriFeed ({HtmlEscape(Username)}) 🔖</title>
 		<pubDate>{Date}</pubDate>
@@ -229,9 +265,9 @@ def MkFeed(Data, Remote, Username, Password, Type="RSS"):
 		{Feed}
 	</channel>
 </rss>
-'''
+		'''
 
-def MkUrl(Post, Type="RSS"):
+def MkUrl(Post, Type='RSS'):
 	Args = {}
 	#Args = Post.split('&')
 	for Arg in Post.split('&'):
@@ -240,59 +276,60 @@ def MkUrl(Post, Type="RSS"):
 	return f'''\
 http[s]://<THIS SHIORIFEED SERVER ADDRESS>\
 /{Args['Remote']}\
-/{b64encode(Args['Username'].encode()).decode()}\
-/{b64encode(Args['Password'].encode()).decode()}\
+/{b64UrlEncode(Args['Username'].encode()).decode()}\
+/{b64UrlEncode(Args['Password'].encode()).decode()}\
 /{Type}.xml'''
 
 def GetSession(Remote, Username, Password):
 	try:
 		Rq = urlopen(Request(f'{Remote}/api/login',
 			data=json.dumps({'username': Username, 'password': Password, 'remember': True, 'owner': True}).encode(),
-			headers={'User-Agent': f'ShioriFeed at {Host[0]}'}))
+			headers={'User-Agent': UserAgent}))
 		if Rq.code == 200:
 			Data = {SessionHash(Remote, Username, Password): json.loads(Rq.read().decode())['session']}
 			Sessions.update(Data)
-			return {
-				'Code': 200,
-				'Body': Data}
+			return {'Code': 200, 'Body': Data}
 		else:
-			return {
-				'Code': Rq.code,
-				'Body': f'[{Rq.code}] External Server Error\n\n{Rq.read().decode()}'}
-	except Exception: #as Ex: #(HTTPError, URLError) as Ex:
-		#print(traceback.format_exc())
-		return {
-			'Code': 500,
-			'Body': '[500] Internal Server Error' + (f'\n\n{traceback.format_exc()}' if Debug else '')}
+			return {'Code': Rq.code, 'Body': f'[{Rq.code}] External Server Error\n\n{Rq.read().decode()}'}
+	except Exception:
+		return {'Code': 500, 'Body': f'[500] Internal Server Error{RetDebugIf()}'}
+
+def GetContent(Remote, Path, Session):
+	try:
+		Rq = urlopen(Request(f'{Remote}/{Path}', headers={'X-Session-Id': Session, 'User-Agent': UserAgent}))
+		if Rq.code == 200:
+			return {'Code': 200, 'Body': Rq.read(), 'Content-Type': Rq.headers['Content-Type']}
+		else:
+			return {'Code': Rq.code, 'Body': f'[{Rq.code}] External Server Error\n\n{Rq.read().decode()}'.encode()}
+	except Exception:
+		return {'Code': 500, 'Body': f'[500] Internal Server Error{RetDebugIf()}'.encode()}
 
 def RqHandle(Path, Attempt=0):
 	try:
 		Rs = {}
 		Args = Path.strip().removeprefix('/').removesuffix('/').strip().split('/')
 		if Args[0] == '':
-			return {
-				'Code': 200,
-				'Body': HomeTemplate,
-				'Content-Type': 'text/html'}
+			return {'Code': 200, 'Body': HomeTemplate, 'Content-Type': 'text/html'}
 		else:
 			Shift = 1 if Args[-1].lower().startswith(('atom.xml', 'rss.xml')) else 0
 			Remote = '/'.join(Args[:-(2+Shift)])
-			Username = b64decode(Args[-(2+Shift)]).decode()
-			Password = b64decode(Args[-(1+Shift)]).decode()
+			Username = b64UrlDecode(Args[-(2+Shift)]).decode()
+			Password = b64UrlDecode(Args[-(1+Shift)]).decode()
 			if not SessionHash(Remote, Username, Password) in Sessions:
 				TrySession = GetSession(Remote, Username, Password)
 				if TrySession['Code'] != 200:
 					return TrySession
+			Session = Sessions[SessionHash(Remote, Username, Password)]
 			Rq = urlopen(Request(f'{Remote}/api/bookmarks', headers={
-				'X-Session-Id': Sessions[SessionHash(Remote, Username, Password)],
-				'User-Agent': f'ShioriFeed at {Host[0]}'}))
+				'X-Session-Id': Session,
+				'User-Agent': UserAgent}))
 			Rs['Code'] = Rq.code
-			# Shiori got us JSON data, parse it and return our result
 			if Rq.code == 200:
-				Rs['Body'] = MkFeed(json.loads(Rq.read().decode()), Remote, Username, Password)
+				# Shiori got us JSON data, parse it and return our result
+				Rs['Body'] = MkFeed(json.loads(Rq.read().decode()), Remote, Username, Session)
 				Rs['Content-Type'] = 'application/xml'
-			# We probably got an expired Session-Id, let's try to renew it
 			elif Rq.code == 500 and Attempt < 1:
+				# We probably got an expired Session-Id, let's renew it and retry
 				TrySession = GetSession(Remote, Username, Password)
 				if TrySession['Code'] != 200:
 					return TrySession
@@ -300,15 +337,8 @@ def RqHandle(Path, Attempt=0):
 			else:
 				Rs['Body'] = f'[{Rq.code}] External Server Error\n\n{Rq.read().decode()}'
 		return Rs
-	except Exception: #as Ex: #(HTTPError, URLError) as Ex:
-		#print(traceback.format_exc())
-		#Rs['Code'] = 500
-		#Rs['Body'] = f'[500] Internal Server Error\n\n{traceback.format_exc()}'
-		#Rs['Body'] = f'[500] Internal Server Error'
-		#Rs['Content-Type'] = 'text/plain'
-		return {
-			'Code': 500,
-			'Body': '[500] Internal Server Error' + (f'\n\n{traceback.format_exc()}' if Debug else '')}
+	except Exception:
+		return {'Code': 500, 'Body': f'[500] Internal Server Error{RetDebugIf()}'}
 
 class Handler(BaseHTTPRequestHandler):
 	def do_GET(self):
@@ -340,7 +370,7 @@ class Handler(BaseHTTPRequestHandler):
 			self.send_response(500)
 			self.send_header('Content-Type', 'text/plain')
 			self.end_headers()
-			self.wfile.write(('[500] Internal Server Error' + (f'\n\n{traceback.format_exc()}' if Debug else '')).encode())
+			self.wfile.write((f'[500] Internal Server Error{RetDebugIf()}').encode())
 	# https://stackoverflow.com/a/3389505
 	def log_message(self, format, *args):
 		return
