@@ -4,7 +4,7 @@
 # | [ ShioriFeed 🔖 (OctoSpacc) ]                                        | #
 # | Simple service for getting an Atom/RSS feed from your Shiori profile | #
 # *----------------------------------------------------------------------* #
-Version = '2023-02-15'
+Version = '2023-02-16'
 # *----------------------------------------------------------------------* #
 
 # *-------------------------------------------* #
@@ -13,30 +13,31 @@ Version = '2023-02-15'
 Host = ('localhost', 8176)
 Debug = False
 UserAgent = f'ShioriFeed v{Version} at {Host[0]}'
+DefFeedType = 'atom'
 # *-------------------------------------------* #
 
 # External Requirements: urllib3
 
 # TODO:
 # - Cheking if Content mode content is actually present, otherwise fall back to Archive mode or original link (using API data is unreliable it seems)
-# - Atom feed
 # - Actually valid RSS
 # - XML stylesheet
 # - Filtering (tags, etc.)
 # - Write privacy policy
 # - Fix the URL copy thing
-# - Minification
+# - Minification (?)
 
 # *-------------------------------------------------------------------------* #
 
-import traceback
 import json
+import threading
+import traceback
 from base64 import urlsafe_b64decode as b64UrlDecode, urlsafe_b64encode as b64UrlEncode, standard_b64encode as b64Encode
 from html import escape as HtmlEscape
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
+from urllib.parse import unquote as UrlUnquote
 from urllib.request import urlopen, Request
-import threading
 
 HomeTemplate = '''\
 <!DOCTYPE html>
@@ -107,10 +108,12 @@ HomeTemplate = '''\
 				resize: none;
 			}
 			input { height: 2em; }
-			input[type="submit"] { font-size: large; }
-			input, textarea, details { border-radius: 2px; }
-			input, textarea {
+			input[type="submit"], button { font-size: large; }
+			input, textarea, details {
 				width: 100%;
+				border-radius: 2px;
+			}
+			input, textarea, button {
 				color: var(--cFore1);
 				background: var(--cBack1);
 				border: none;
@@ -181,6 +184,14 @@ HomeTemplate = '''\
 					<h4>Privacy Policy</h4>
 					(applies to <em class="Underline">ShioriFeed.Octt.eu.org</em>)
 				</summary>
+				<p><!--
+					By using this service
+					(doing any action that sends/requests data to/from the server),
+					you understand and agree to the following:
+					<ul>
+						<li>
+						</li>
+					</ul>-->
 				<!--<ul>
 					<li>-->
 						I still have to write this... tough luck.
@@ -188,6 +199,7 @@ HomeTemplate = '''\
 						if you're worried about your security then just host the software yourself.
 				<!--	</li>
 				</ul>-->
+				</p>
 			</details>
 		</p>
 		<p class="NoSelect">
@@ -222,57 +234,77 @@ def RetDebugIf():
 def SessionHash(Remote, Username, Password):
 	return f'{hash(Remote)}{hash(Username)}{hash(Password)}'
 
-def MkFeed(Data, Remote, Username, Session, Type='RSS'):
+def MkFeed(Data, Remote, Username, Session, Type=DefFeedType):
 	Feed = ''
-	Date = Data['bookmarks'][0]['modified'] if Data['bookmarks'] else ''
+	FeedTitle = f'<title>ShioriFeed ({HtmlEscape(Username)}) 🔖</title>'
+	Generator = f'<generator uri="https://gitlab.com/octospacc/Snippets/-/blob/main/ShioriFeed.py" version="{Version}">ShioriFeed</generator>'
+	FeedDate = Data['bookmarks'][0]['modified'] if Data['bookmarks'] else ''
 	for Mark in Data['bookmarks']:
 		Id = Mark['id']
-		Link = f'{Remote}/bookmark/{Id}/content'
+		EntryTitle = f'<title>{HtmlEscape(Mark["title"])}</title>'
+		EntryAuthor = f'<author>{HtmlEscape(Mark["author"])}</author>' if Mark['author'] else ''
+		EntryLink = f'{Remote}/bookmark/{Id}/content'
 		# NOTE: when shiori issue #578 is fixed, this should use a thumb URL from the original article HTML to cope with private bookmarks
-		Cover = f'<![CDATA[<a href="{Link}"><img src="{Remote}/bookmark/{Id}/thumb"/></a>]]>' if Mark['imageURL'] else ''
+		EntryCover = f'<p><a href="{EntryLink}"><img src="{Remote}/bookmark/{Id}/thumb"/></a></p>' if Mark['imageURL'] else ''
 		# Not so sure about this chief, downloading and embedding EVERY cover image into the XML is slow (~8s per 1 req) and traffic-hungry (~10 simultaneous requests are enough to temporarily DoS the Raspi)
 		#ImgData = GetContent(Remote, f'bookmark/{Id}/thumb', Session) if Mark['imageURL'] else None
 		#Cover = f'<![CDATA[<a href="{Link}"><img src="data:{ImgData["Content-Type"]};base64,{b64Encode(ImgData["Body"]).decode()}"/></a><br /><br />]]>' if ImgData else ''
-		Content = f'{HtmlEscape(GetContent(Remote, f"bookmark/{Id}/content", Session)["Body"].decode())}'
-		if Type == 'Atom':
+		EntryPreview = f'<![CDATA[{EntryCover}<p>{HtmlEscape(Mark["excerpt"])}</p>]]>'
+		EntryContent = f'{HtmlEscape(GetContent(Remote, f"bookmark/{Id}/content", Session)["Body"].decode())}'
+		if Type == 'atom':
 			Feed += f'''
-
+<entry>
+	{EntryTitle}
+	{EntryAuthor}
+	<summary>{EntryPreview}</summary>
+	<content type="text/html">{EntryContent}</content>
+	<link rel="alternate" href="{EntryLink}"/>
+	<published>{Mark['modified']}</published>
+	<updated>{Mark['modified']}</updated>
+	<id>{EntryLink}</id>
+</entry>
 			'''
-		elif Type == 'RSS':
+		elif Type == 'rss':
 			Feed += f'''
 <item>
-	<title>{HtmlEscape(Mark['title'])}</title>
-	<description>{Cover}{HtmlEscape(Mark['excerpt'])}</description>
-	<author>{Mark['author']}</author>
-	<content:encoded type="text/html">{Content}</content:encoded>
-	<link>{Link}</link>
+	{EntryTitle}
+	{EntryAuthor}
+	<description>{EntryPreview}</description>
+	<content:encoded type="text/html">{EntryContent}</content:encoded>
+	<link>{EntryLink}</link>
 	<pubDate>{Mark['modified']}</pubDate>
-	<guid isPermaLink="false">{Link}</guid>
+	<guid isPermaLink="false">{EntryLink}</guid>
 </item>
 			'''
-	if Type == 'Atom':
+	if Type == 'atom':
 		return f'''\
-
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+	{FeedTitle}
+	{Generator}
+	<updated>{FeedDate}</updated>
+	{Feed}
+</feed>
 		'''
-	elif Type == 'RSS':
+	elif Type == 'rss':
 		return f'''\
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
 	<channel>
-		<title>ShioriFeed ({HtmlEscape(Username)}) 🔖</title>
-		<pubDate>{Date}</pubDate>
-		<lastBuildDate>{Date}</lastBuildDate>
+		{FeedTitle}
+		{Generator}
+		<pubDate>{FeedDate}</pubDate>
+		<lastBuildDate>{FeedDate}</lastBuildDate>
 		{Feed}
 	</channel>
 </rss>
 		'''
 
-def MkUrl(Post, Type='RSS'):
+def MkUrl(Post, Type=DefFeedType):
 	Args = {}
-	#Args = Post.split('&')
 	for Arg in Post.split('&'):
 		Arg = Arg.split('=')
-		Args.update({Arg[0]: Arg[1]})
+		Args.update({Arg[0]: UrlUnquote(Arg[1])})
 	return f'''\
 http[s]://<THIS SHIORIFEED SERVER ADDRESS>\
 /{Args['Remote']}\
@@ -311,8 +343,16 @@ def RqHandle(Path, Attempt=0):
 		if Args[0] == '':
 			return {'Code': 200, 'Body': HomeTemplate, 'Content-Type': 'text/html'}
 		else:
-			Shift = 1 if Args[-1].lower().startswith(('atom.xml', 'rss.xml')) else 0
-			Remote = '/'.join(Args[:-(2+Shift)])
+			TypeCheck = Args[-1].lower().replace('?', '&').split('&')[0]
+			#Shift = 1 if TypeCheck in ('atom.xml', 'rss.xml', 'atom', 'rss') else 0
+			#Type = Args[-1].lower().split('&')[0] if Shift == 1 else 
+			if TypeCheck in ('atom.xml', 'rss.xml', 'atom', 'rss'):
+				Shift = 1
+				FeedType = TypeCheck.split('.')[0]
+			else:
+				Shift = 0
+				FeedType = DefFeedType
+			Remote = '/'.join(Args[:-(2+Shift)]).removesuffix('/')
 			Username = b64UrlDecode(Args[-(2+Shift)]).decode()
 			Password = b64UrlDecode(Args[-(1+Shift)]).decode()
 			if not SessionHash(Remote, Username, Password) in Sessions:
@@ -326,7 +366,7 @@ def RqHandle(Path, Attempt=0):
 			Rs['Code'] = Rq.code
 			if Rq.code == 200:
 				# Shiori got us JSON data, parse it and return our result
-				Rs['Body'] = MkFeed(json.loads(Rq.read().decode()), Remote, Username, Session)
+				Rs['Body'] = MkFeed(json.loads(Rq.read().decode()), Remote, Username, Session, FeedType)
 				Rs['Content-Type'] = 'application/xml'
 			elif Rq.code == 500 and Attempt < 1:
 				# We probably got an expired Session-Id, let's renew it and retry
@@ -350,10 +390,12 @@ class Handler(BaseHTTPRequestHandler):
 	def do_POST(self):
 		try:
 			if self.path == '/':
+				Post = self.rfile.read(int(self.headers['Content-Length'])).decode()
 				Body = HomeTemplate.replace('<!-- {{PostResult}} -->', f'''
 <p>
-	Here's your RSS feed:
-	<textarea readonly="true">{MkUrl(self.rfile.read(int(self.headers['Content-Length'])).decode())}</textarea>
+	Here's your <button>Atom</button> feed:
+	<textarea class="Visible" readonly="true">{MkUrl(Post, 'atom')}</textarea>
+	<textarea class="Hidden" hidden="true" readonly="true">{MkUrl(Post, 'rss')}</textarea>
 </p>
 <br />
 				''').replace('/* {{PostCss}} */', '.PostObscure { opacity: 0.5; }')
@@ -371,9 +413,9 @@ class Handler(BaseHTTPRequestHandler):
 			self.send_header('Content-Type', 'text/plain')
 			self.end_headers()
 			self.wfile.write((f'[500] Internal Server Error{RetDebugIf()}').encode())
-	# https://stackoverflow.com/a/3389505
-	def log_message(self, format, *args):
-		return
+	##Prevent logging | https://stackoverflow.com/a/3389505
+	#def log_message(self, format, *args):
+	#	return
 # https://stackoverflow.com/a/51559006
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 	pass
