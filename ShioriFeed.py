@@ -4,7 +4,7 @@
 # | [ ShioriFeed 🔖 (OctoSpacc) ]                                        | #
 # | Simple service for getting an Atom/RSS feed from your Shiori profile | #
 # *----------------------------------------------------------------------* #
-Version = '2023-02-16'
+Version = '2023-02-28'
 # *----------------------------------------------------------------------* #
 
 # *-------------------------------------------* #
@@ -20,6 +20,7 @@ DefFeedType = 'atom'
 
 # TODO:
 # - Cheking if Content mode content is actually present, otherwise fall back to Archive mode or original link (using API data is unreliable it seems)
+# - HTML proxy (direct access to web UI, without JS)
 # - Actually valid RSS
 # - XML stylesheet
 # - Filtering (tags, etc.)
@@ -39,22 +40,26 @@ from socketserver import ThreadingMixIn
 from urllib.parse import unquote as UrlUnquote
 from urllib.request import urlopen, Request
 
+HtmlHead = '''
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!--
+	"bookmark" Emoji icon - Copyright 2021 Google Inc. All Rights Reserved.
+	<https://fonts.google.com/noto/specimen/Noto+Color+Emoji/about>
+	<https://scripts.sil.org/cms/scripts/page.php?item_id=OFL_web>
+-->
+<link rel="shortcut icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAMAAAC8EZcfAAAABGdBTUEAALGPC/xhBQAAAAFzUkdCAK7OHOkAAAMAUExURUdwTPRBM/FLNfRBM/NEM+5QNvRBM85ONfRBM/RBM/VBM/RBM+dCM4hMM/RBM/RBM/RBM/RBM+1UN/RBM/VBM/NFNPRBM/RBM/RBM/VBM/RBM/RBM/RBM+xXN/RBM990PvRBM/RBM/RBM/RBM/RBM/RBM/RBM/FJNPRBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM35HMYhMM4hMM4hMM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/JHNIhMM4hMM/RBM/RBM/RBM91zPvRBM/RBM/RBM4hMM5JQNIhMM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM990PohMM4dLM990PodLM4hMM4pNM+B0Pt90PolMM4ZMM4hMM4hMM4hMM4hMM990PvRBM95zPfRBM4dMM990PohMM4hMM990PohMM990PvRBM990PvRBM990PohMM990PqdJM41OM990Pt90Pt90PvRBM5VRNIhMM990PohMM4hMM4hMM4hMM45MM4tNM990PohMM4hMM9JtPbFfOE0xKt90Pn5HMs5rPN90PthxPd50Pt90PrljOU0xKt90Ps1FM0wxKrxjOYRJMtVuPUwxKk0xKlQ0K7tjOV84LK9JM99MzvRBM990PohMM/zszodMM/Q/MeB0Pvzw0fzu0PZBM4lMM00xKtpyPfQ+MZtUNd1zPuB1Po5NM9BsPItNM/d9avRFNu1BM5dSNfzmyfVYSPrIrvVeTfZlU/VQQKJXNqZZNrpjOZFQNPiLd/zqzPzhxPzrzZROM8lpOvZqWfvWuvvdwPVSQvq4n/idh6pJM7xGM1MzK9ZvPdRuPbRgOL9lOcxrPPvQtPq9pPVLPPRIOfmslZ5WNXtFMd5DM8VnOveDb/iSfWg7LfmzmviXgvrHraNJM+ZCM8pqPNlEM/Z1Yviii/rLsLFHM81EM9JCMq5eN+F1Pl44LPmkjvztz7M6MPmjjJtKM4g4LZ04Lm5AMK1dN0dwTGi1UKgAAAEAdFJOUwBICTUPBPgB/d8T/gL8B/o/7w312QXnKX9r6vIjCjH6xdbMFsLtixu9ZE3PLaxYvwQlB+4rtnE6j6bT5JSdHBj89yAUVVzcojGbYVLzDNt2hEOXZ8m5JlWw5kikRDizGcP04z6HejS5qLNwn54T6myc9SaoznvvXDzijmF7jnrqxtbTyKcb+a9baW+uZzC22fYt+eChs/lIh+rWHJB6TqtP7u7//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAl04dNAAAKGUlEQVR42u2cd1AbVx7HVxI6kBDIBiyLJjC9Y7rBgA0xxhSbXkzcu+MWx44vPZfitOu95Pos0i6WqQKBAZtiA3ZccAvujnEj8SW55JLT1cytyorFaFcr6a20M8fvD8OInXmfeb/2fb99FgTN2Iyxznates6DzXzL1q1f/4PnnFnL98y6esxWPsXWTfR/ul5nAdueYSfgO+vrDbZ/FRvdvGudCgesX/niHPYBrvrR+OUGnHD9S/6sA/xjd2PrlWYcMeBlJ7YBJqyQI+rBDiPh07vYRrhkg1yOnLrS1sBWQuctW92wTRxrNhKyzstPbEqSy+WDeK4EvMy6TJm/ZAXm5tt4IAa8xL5qs/o7GGErTnjgRfaVw4Q1RMKVq9hHePBJLFVaPzQQ7mdhX35CSziA5/I2DzYSYrn8tzZDojzFQt1wEItD9XFDS/npMhYSJrwhR058YHDyd5ezkHD1islE+cn3TD4iyi6riUp2dxTht4vlyGCzfgt/k2DigWDpvBxXsSSdZzfBv2wZsbHN3+SGh2HDoxfmT3s8JsUF1pkgyk4Hum0HDmwLJ6byVjnSrg/Dy6+ufty9nAwYt4y5dsBzf+c1LcnPiHu4cTcehm0DOxOnPl4hgSdtB5dxvrW/XW+oeYTDkmizGx6Gg0kbiY8LwzwJfHBOIeOF+e1HKhOtdy2mGxrH6hsa2m4jOwlR6Be7GJ5iXjFMZ6zbGC709/+YKLH3yuXtx5vbrrTLd09GYVol/LjFMqxs30O6cW1Qv44gDpa/jbU8devtduzHCwbn8/ME0/hgcSqz5+iNu5Fv2vAD5zpCZ6vTCmwEwf6Rr9DXQg/pbNiEScqY1dGb3NRXjEfi134pwv+Q+KYcN7d3tR9k7xDDJi0wm9ks2TrZebXTI2PzrSs2Em7FPpTFu8Ik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"/>
+<title>ShioriFeed 🔖</title>
+<meta name="description" content="Simple service for getting an Atom/RSS feed from your Shiori profile"/>
+<meta property="og:title" content="ShioriFeed 🔖"/>
+<meta property="og:description" content="Simple service for getting an Atom/RSS feed from your Shiori profile"/>
+'''
+
 HomeTemplate = '''\
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<meta charset="UTF-8"/>
-		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-		<!--
-			"bookmark" Emoji icon - Copyright 2021 Google Inc. All Rights Reserved.
-			<https://fonts.google.com/noto/specimen/Noto+Color+Emoji/about>
-			<https://scripts.sil.org/cms/scripts/page.php?item_id=OFL_web>
-		-->
-		<link rel="shortcut icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAMAAAC8EZcfAAAABGdBTUEAALGPC/xhBQAAAAFzUkdCAK7OHOkAAAMAUExURUdwTPRBM/FLNfRBM/NEM+5QNvRBM85ONfRBM/RBM/VBM/RBM+dCM4hMM/RBM/RBM/RBM/RBM+1UN/RBM/VBM/NFNPRBM/RBM/RBM/VBM/RBM/RBM/RBM+xXN/RBM990PvRBM/RBM/RBM/RBM/RBM/RBM/RBM/FJNPRBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM35HMYhMM4hMM4hMM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/JHNIhMM4hMM/RBM/RBM/RBM91zPvRBM/RBM/RBM4hMM5JQNIhMM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM/RBM990PohMM4dLM990PodLM4hMM4pNM+B0Pt90PolMM4ZMM4hMM4hMM4hMM4hMM990PvRBM95zPfRBM4dMM990PohMM4hMM990PohMM990PvRBM990PvRBM990PohMM990PqdJM41OM990Pt90Pt90PvRBM5VRNIhMM990PohMM4hMM4hMM4hMM45MM4tNM990PohMM4hMM9JtPbFfOE0xKt90Pn5HMs5rPN90PthxPd50Pt90PrljOU0xKt90Ps1FM0wxKrxjOYRJMtVuPUwxKk0xKlQ0K7tjOV84LK9JM99MzvRBM990PohMM/zszodMM/Q/MeB0Pvzw0fzu0PZBM4lMM00xKtpyPfQ+MZtUNd1zPuB1Po5NM9BsPItNM/d9avRFNu1BM5dSNfzmyfVYSPrIrvVeTfZlU/VQQKJXNqZZNrpjOZFQNPiLd/zqzPzhxPzrzZROM8lpOvZqWfvWuvvdwPVSQvq4n/idh6pJM7xGM1MzK9ZvPdRuPbRgOL9lOcxrPPvQtPq9pPVLPPRIOfmslZ5WNXtFMd5DM8VnOveDb/iSfWg7LfmzmviXgvrHraNJM+ZCM8pqPNlEM/Z1Yviii/rLsLFHM81EM9JCMq5eN+F1Pl44LPmkjvztz7M6MPmjjJtKM4g4LZ04Lm5AMK1dN0dwTGi1UKgAAAEAdFJOUwBICTUPBPgB/d8T/gL8B/o/7w312QXnKX9r6vIjCjH6xdbMFsLtixu9ZE3PLaxYvwQlB+4rtnE6j6bT5JSdHBj89yAUVVzcojGbYVLzDNt2hEOXZ8m5JlWw5kikRDizGcP04z6HejS5qLNwn54T6myc9SaoznvvXDzijmF7jnrqxtbTyKcb+a9baW+uZzC22fYt+eChs/lIh+rWHJB6TqtP7u7//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAl04dNAAAKGUlEQVR42u2cd1AbVx7HVxI6kBDIBiyLJjC9Y7rBgA0xxhSbXkzcu+MWx44vPZfitOu95Pos0i6WqQKBAZtiA3ZccAvujnEj8SW55JLT1cytyorFaFcr6a20M8fvD8OInXmfeb/2fb99FgTN2Iyxznates6DzXzL1q1f/4PnnFnL98y6esxWPsXWTfR/ul5nAdueYSfgO+vrDbZ/FRvdvGudCgesX/niHPYBrvrR+OUGnHD9S/6sA/xjd2PrlWYcMeBlJ7YBJqyQI+rBDiPh07vYRrhkg1yOnLrS1sBWQuctW92wTRxrNhKyzstPbEqSy+WDeK4EvMy6TJm/ZAXm5tt4IAa8xL5qs/o7GGErTnjgRfaVw4Q1RMKVq9hHePBJLFVaPzQQ7mdhX35CSziA5/I2DzYSYrn8tzZDojzFQt1wEItD9XFDS/npMhYSJrwhR058YHDyd5ezkHD1islE+cn3TD4iyi6riUp2dxTht4vlyGCzfgt/k2DigWDpvBxXsSSdZzfBv2wZsbHN3+SGh2HDoxfmT3s8JsUF1pkgyk4Hum0HDmwLJ6byVjnSrg/Dy6+ufty9nAwYt4y5dsBzf+c1LcnPiHu4cTcehm0DOxOnPl4hgSdtB5dxvrW/XW+oeYTDkmizGx6Gg0kbiY8LwzwJfHBOIeOF+e1HKhOtdy2mGxrH6hsa2m4jOwlR6Be7GJ5iXjFMZ6zbGC709/+YKLH3yuXtx5vbrrTLd09GYVol/LjFMqxs30O6cW1Qv44gDpa/jbU8devtduzHCwbn8/ME0/hgcSqz5+iNu5Fv2vAD5zpCZ6vTCmwEwf6Rr9DXQg/pbNiEScqY1dGb3NRXjEfi134pwv+Q+KYcN7d3tR9k7xDDJi0wm9ks2TrZebXTI2PzrSs2Em7FPpTFu8Ik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"/>
-		<title>ShioriFeed 🔖</title>
-		<meta name="description" content="Simple service for getting an Atom/RSS feed from your Shiori profile"/>
-		<meta property="og:title" content="ShioriFeed 🔖"/>
-		<meta property="og:description" content="Simple service for getting an Atom/RSS feed from your Shiori profile"/>
+		{{HtmlHead}}
 		<style>
 			:root {
 				--cFore0: #232323;
@@ -222,11 +227,103 @@ HomeTemplate = '''\
 						//};
 					} catch(e) {};
 				};
+				BtnChangeFeed.onclick = function() {
+					var CurType = Box.value.split('/')[-1].split('?')[0].split('.')[0];
+					if (CurType == 'atom') {
+						
+					} else 
+					if (CurType == 'rss') {
+						
+					};
+				};
 			};
 		</script>
 	</body>
 </html>
-'''.replace('{{Version}}', Version)
+'''.replace('{{HtmlHead}}', HtmlHead).replace('{{Version}}', Version)
+
+XmlHead = '''\
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type="text/xsl" href="#stylesheet"?>
+<!DOCTYPE xml [<!ATTLIST xsl:stylesheet id ID #REQUIRED>]>
+'''
+
+XmlStyle='''
+<!-- Partially derived from https://gist.github.com/andrewstiefel/57a0a400aa2deb6c9fe18c6da4e16e0f -->
+<xsl:stylesheet
+	id="stylesheet"
+	version="1.0"
+	xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	exclude-result-prefixes="atom"
+>
+	<xsl:output method="html" version="1.0" encoding="UTF-8" indent="yes"/>
+	<xsl:template match="/">
+		<html xmlns="http://www.w3.org/1999/xhtml">
+			<head>
+				{{HtmlHead}}
+				<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+				<style type="text/css">
+					* { max-width: 100%; height: auto; box-sizing: border-box; }
+					body { overflow-wrap: break-word; background: #ffffff; color: #000000; }
+					details { border: 2px solid gray; margin: 16px; }
+					details > summary { padding: 8px; background: #dddddd; }
+					details > summary > h2 { display: inline; }
+					details > summary img { max-height: 50vh; }
+					details > div { padding: 8px; }
+				</style>
+				<script type="application/javascript">
+// TODO: Output escaping doesn't work on Firefox so we must parse XML via scripts to properly display it
+//var Req = new XMLHttpRequest();
+//Req.open('GET', window.location, false);
+//Req.send();
+//var Xml = Req.responseXML;
+//var XsltProc = new XSLTProcessor(); // Get only the stylesheet from the XML
+//XsltProc.importStylesheet(Xsl);
+//var Result = XsltProc.transformToFragment(Xml, document);
+//body.innerHTML = '';
+//document.body.appendChild(Result);
+//alert(1);
+				</script>
+			</head>
+			<body>
+				<section>
+					<xsl:apply-templates select="atom:feed" />
+				</section>
+				<section>
+					<xsl:apply-templates select="atom:feed/atom:entry" />
+				</section>
+			</body>
+		</html>
+	</xsl:template>
+	<xsl:template match="atom:feed"></xsl:template>
+	<xsl:template match="atom:entry">
+		<details class="entry">
+			<summary>
+				<h2>
+					<a>
+						<xsl:attribute name="href">
+							<xsl:value-of select="atom:id"/>
+						</xsl:attribute>
+						<xsl:value-of select="atom:title"/>
+					</a>
+				</h2>
+				<p>
+					<small>
+						Date: <xsl:value-of select="atom:updated"/>
+					</small>
+					<xsl:value-of select="atom:summary" disable-output-escaping="yes"/>
+				</p>
+			</summary>
+			<div>
+				<p>
+					<xsl:value-of select="atom:content" disable-output-escaping="yes"/>
+				</p>
+			</div>
+		</details>
+	</xsl:template>
+</xsl:stylesheet>
+'''.replace('{{HtmlHead}}', HtmlHead)
 
 def RetDebugIf():
 	return f'\n\n{traceback.format_exc()}' if Debug else ''
@@ -278,8 +375,9 @@ def MkFeed(Data, Remote, Username, Session, Type=DefFeedType):
 			'''
 	if Type == 'atom':
 		return f'''\
-<?xml version="1.0" encoding="utf-8"?>
+{XmlHead}
 <feed xmlns="http://www.w3.org/2005/Atom">
+	{XmlStyle}
 	{FeedTitle}
 	{Generator}
 	<updated>{FeedDate}</updated>
@@ -288,8 +386,9 @@ def MkFeed(Data, Remote, Username, Session, Type=DefFeedType):
 		'''
 	elif Type == 'rss':
 		return f'''\
-<?xml version="1.0" encoding="utf-8"?>
+{XmlHead}
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+	{XmlStyle}
 	<channel>
 		{FeedTitle}
 		{Generator}
@@ -393,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
 				Post = self.rfile.read(int(self.headers['Content-Length'])).decode()
 				Body = HomeTemplate.replace('<!-- {{PostResult}} -->', f'''
 <p>
-	Here's your <button>Atom</button> feed:
+	Here's your <button id="BtnChangeFeed">Atom</button> feed:
 	<textarea class="Visible" readonly="true">{MkUrl(Post, 'atom')}</textarea>
 	<textarea class="Hidden" hidden="true" readonly="true">{MkUrl(Post, 'rss')}</textarea>
 </p>
