@@ -82,9 +82,7 @@ if (IsPageAllowed) {
   function OpenLogs() {
     setTimeout(function(){
       location.hash = '#cat=status-and-support_event-log';
-      WaitElClick('#navigator *[navi-value="sysLog"] a', function(){
-        AfterCmd();
-      });
+      AfterCmd();
     }, 1500);
   };
 
