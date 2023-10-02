@@ -10,15 +10,19 @@ from bs4 import BeautifulSoup
 # | Configuration      | #
 # *--------------------* #
 Host = ('localhost', 8080)
-Debug = False
+Debug = True
 # *--------------------* #
 
-# Don't let the Zuck know this is a bot
-UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59'
+# Must be stealth about this since there are some nasty servers in the world! (Zuck, Musk, ...)
+ProxyHeaders = {
+	"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
+	"Sec-Fetch-Site": "same-origin",
+}
 
 AppMeta = {
+	"SiteName": "Web Meta Preview Proxy",
 	"Title": "Web Meta Preview Proxy",
-	"Description": "A simple way to live.",
+	"Description": "HTML metadata provided in a proxied and paginated form.",
 }
 
 # <https://stackoverflow.com/a/51559006>
@@ -30,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
 		Res = {}
 		Url = self.path[1:]
 		try:
-			Req = urlopen(Request(Url, headers={"User-Agent": UserAgent}))
+			Req = urlopen(Request(Url, headers=ProxyHeaders))
 			Res['Code'] = 200
 			Res['Body'] = MakePage(Code=Req.code, Url=Url, Meta=HtmlToMeta(Req.read().decode()))
 		except (HTTPError, URLError) as e:
@@ -86,9 +90,15 @@ def MakePage(Meta:dict=None, Code:int=None, Url:str=None):
 	<meta charset="utf-8"/>
 	<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 	<style>
+		body {{
+			word-break: break-all;
+		}}
+
 		.Bold,
 		dl > dt {{
 			font-weight: bold;
+			padding-top: 1.00em;
+			padding-bottom: 0.50em;
 		}}
 	</style>
 	{MetaToHtmlHead(ContextAppMeta(Meta))}
@@ -100,7 +110,7 @@ def MakePage(Meta:dict=None, Code:int=None, Url:str=None):
 		<button type="submit">Go</button>
 	</form>
 	-->
-	<p><span class="Bold">Proxied URL</span>: <code>{Url}</code></p>
+	<p><span class="Bold">Proxied URL</span>: <code><a href="{Url}">{Url}</a></code></p>
 	<p><span class="Bold">Proxied HTTP Response</span>: <code>{Code}</code></p>
 	{MetaToHtmlBody(Meta) if Meta else '<p>Could not retrieve any metadata from the requested URL.</p>'}
 	<p>
@@ -113,24 +123,30 @@ def ContextAppMeta(Meta:dict=None):
 	#New = DictJoin(AppMeta, Meta)
 	New = dict(AppMeta)
 	if Meta:
-		if Meta['Title']: New['Title'] = f"{Meta['Title']} | {AppMeta['Title']}"
-		if Meta['Description']: New['Description'] = Meta['Description']
+		if Meta['SiteName']:    New['SiteName'] = f"{Meta['SiteName']} | {AppMeta['SiteName']}"
+		if Meta['Title']:       New['Title'] = f"{Meta['Title']} | {AppMeta['Title']}"
+		if Meta['Description']: New['Description'] = f"{Meta['Description']} | {AppMeta['Description']}"
+		if Meta['Image']:       New['Image'] = Meta['Image']
 	return New
 
 def MetaToHtmlHead(Meta:dict):
 	Meta = DictHtmlSafe(Meta)
 	return f'''\
-{f'<title>{Meta["Title"]}</title><meta property="og:title" content="{Meta["Title"]}"/>' if Meta["Title"] else ''}
-{f'<meta name="description" content="{Meta["Description"]}"/><meta property="og:description" content="{Meta["Description"]}"/>' if Meta["Description"] else ''}
+{f'<meta property="og:site_name" content="{Meta["SiteName"]}"/>' if DictKeyIf(Meta, 'SiteName') else ''}
+{f'<title>{Meta["Title"]}</title><meta property="og:title" content="{Meta["Title"]}"/>' if DictKeyIf(Meta, 'Title') else ''}
+{f'<meta name="description" content="{Meta["Description"]}"/><meta property="og:description" content="{Meta["Description"]}"/>' if DictKeyIf(Meta, 'Description') else ''}
+{f'<meta property="og:image" content="{Meta["Image"]}"/>' if DictKeyIf(Meta, 'Image') else ''}
 	'''
 
 def MetaToHtmlBody(Meta:dict):
 	Meta = DictHtmlSafe(Meta)
 	return f'''<dl>
-{f'<dt>Title</dt>       <dd>{Meta["Title"]}</dd>'              if DictKeyIf(Meta, 'Title')       else ''}
-{f'<dt>Description</dt> <dd>{Meta["Description"]}</dd>'        if DictKeyIf(Meta, 'Description') else ''}
-{f'<dt>Image</dt>       <dd><img src="{Meta["Image"]}"/></dd>' if DictKeyIf(Meta, 'Image')       else ''}
-{f'<dt>Type</dt>        <dd>{Meta["Type"]}</dd>'               if DictKeyIf(Meta, 'Type')        else ''}
+{f'<dt>Site Name</dt>   <dd>{Meta["SiteName"]}</dd>'            if DictKeyIf(Meta, 'SiteName')    else ''}
+{f'<dt>Title</dt>       <dd>{Meta["Title"]}</dd>'               if DictKeyIf(Meta, 'Title')       else ''}
+{f'<dt>Description</dt> <dd>{Meta["Description"]}</dd>'         if DictKeyIf(Meta, 'Description') else ''}
+{f'<dt>Image</dt>       <dd><img src="{Meta["Image"]}"/></dd>'  if DictKeyIf(Meta, 'Image')       else ''}
+{f'<dt>Type</dt>        <dd>{Meta["Type"]}</dd>'                if DictKeyIf(Meta, 'Type')        else ''}
+{f'<dt>Html</dt>        <dd><code>{Meta["_Html_"]}</code></dd>' if DictKeyIf(Meta, '_Html_') and Debug else ''}
 </dl>'''
 
 def HtmlToMeta(Html:str):
@@ -145,10 +161,12 @@ def HtmlToMeta(Html:str):
 		Description = SoupAttrIf(Soup.find('meta', attrs={"name": "description"}), 'content')
 
 	return {
+		"SiteName": SoupAttrIf(Soup.find('meta', attrs={"property": "og:site_name"}), 'content'),
 		"Title": Title,
 		"Description": Description,
 		"Image": SoupAttrIf(Soup.find('meta', attrs={"property": "og:image"}), 'content'),
 		"Type": SoupAttrIf(Soup.find('meta', attrs={"property": "og:type"}), 'content'),
+		"_Html_": Html,
 	}
 
 if __name__ == '__main__':
