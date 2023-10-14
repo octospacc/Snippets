@@ -4,23 +4,19 @@ Shell=sh
 Script="$(realpath "$0")"
 ArchiveName=mymc.tar.xz
 
-Ps2VmcPath=/mnt/media_rw/8A3A-912B/VMC/games.bin
-EmuVmcPath=/sdcard/Android/data/xyz.aethersx2.android/files/memcards/games.ps2
-TrySuperuser=true
+Ps2VmcPath=/tmp/Ps2EmuVmcConvert/games.bin
+EmuVmcPath=/tmp/Ps2EmuVmcConvert/games.ps2
+TrySuperuser=false
 
 # Script assumes shell path contains following commands and programs:
-# sh [ mkdir realpath basename grep cut rev base64 tar xz python2.7 whoami sudo
-
-#ArchiveNum=1
-#ArchiveLine="$(grep -aFn "#===================[ #${ArchiveNum}: START FILE SECTION \`${ArchiveName}\` ]===================#" "$0" | cut -f1 -d:)"
-#head -n $((${ArchiveLine}+1)) "$0" | tail -n 1 | base64 -d > "./${ArchiveName}"
-#===================[ #1: START FILE SECTION `mymc.tar.xz` ]===================#
+# sh [ mkdir realpath basename grep cut base64 tar xz python2.7 whoami sudo
 
 # Exit when no valid option
 [ "$1" != FromPs2ToEmu ] && [ "$1" != FromEmuToPs2 ] && { echo "Usage: $0 <FromPs2ToEmu|FromEmuToPs2>"; exit; }
 
 # Ensure superuser if necessary
 [ "${TrySuperuser}" = true ] && [ "$(whoami)" != root ] && { sudo "${Shell}" "${Script}" $@; exit; }
+SuperDo(){ [ "${TrySuperuser}" = true ] && [ "$(whoami)" != root ] && sudo $@ || $@ ;}
 
 # Extract mymc to a known reusable directory, if not already present
 [ -z "${HOME}" ] && HOME=.
@@ -30,7 +26,7 @@ if [ ! -d "${BinDir}/mymc" ]
 then
 	OWD="${PWD}"
 	cd "${BinDir}"
-	grep "# FILE SECTION \`${ArchiveName}\` #" "$0" | cut -f3 -d"#" | cut -b2- | base64 -d | tar xJ
+	grep "# FILE SECTION \`${ArchiveName}\` #" "${Script}" | cut -f3 -d"#" | cut -b2- | base64 -d | tar xJ
 	cd "${OWD}"
 fi
 
@@ -43,29 +39,39 @@ fi
 
 # Setup some variables
 mymc(){ python2.7 "${BinDir}/mymc/mymc.py" --ignore-ecc $@ ;}
-Ps2VmcPath="$(realpath "${Ps2VmcPath}")"
-EmuVmcPath="$(realpath "${EmuVmcPath}")"
+Ps2VmcPath="$(SuperDo realpath "${Ps2VmcPath}")"
+EmuVmcPath="$(SuperDo realpath "${EmuVmcPath}")"
 [ "$1" = FromPs2ToEmu ] && { VmcFromPath="${Ps2VmcPath}"; VmcToPath="${EmuVmcPath}"; }
 [ "$1" = FromEmuToPs2 ] && { VmcFromPath="${EmuVmcPath}"; VmcToPath="${Ps2VmcPath}"; }
 
 # Ensure ready temporary directory and set us there
 [ -z "${XDG_RUNTIME_DIR}" ] && XDG_RUNTIME_DIR="${HOME}/.local/tmp"
 TmpDir="${XDG_RUNTIME_DIR}/Ps2EmuVmcConvert"
-mkdir -p "${TmpDir}"
-cd "${TmpDir}"
-rm -f *
+rm -rf "${TmpDir}" || true
+mkdir -p "${TmpDir}/saves"
+cd "${TmpDir}/saves"
 
-# Save reading, conversion, and writing
+# Copy files to act on them locally to avoid Android issues
+#SuperDo cp "${VmcFromPath}" ../From.vmc
+#SuperDo chmod +rw ../From.vmc
+#SuperDo cp "${VmcToPath}" ../To.vmc
+#SuperDo chmod +rw ../To.vmc
+
+# Saves reading, conversion, and writing
+#mymc ../From.vmc export "*"
 mymc "${VmcFromPath}" export "*"
 for Savefile in *.psu
 do
-	#Savename="$(echo "${i}" | rev | cut -d. -f2- | rev)"
 	Savename="$(basename "${Savefile}" .psu)"
 	mv "${Savefile}" "${Savename}"
 done
+#for Save in *; do { mymc ../To.vmc delete "${Save}" || true ;}; done
 for Save in *; do { mymc "${VmcToPath}" delete "${Save}" || true ;}; done
 for Save in *; do mv "${Save}" "${Save}.psu"; done
 mymc "${VmcToPath}" import *
+#mymc ../To.vmc import *
+#cat ../To.vmc > "${VmcToPath}"
+#SuperDo cp ../To.vmc "${VmcToPath}"
 
 exit
 
