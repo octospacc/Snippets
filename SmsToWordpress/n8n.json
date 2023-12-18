@@ -1,0 +1,189 @@
+{
+  "name": "WordPress from SMS",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "...",
+        "options": {}
+      },
+      "id": "02bddd7b-b128-4ae1-a657-71388e7c10e8",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        220,
+        220
+      ],
+      "webhookId": "..."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://octospacc.altervista.org/wp-admin/admin-ajax.php",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
+            },
+            {
+              "name": "cookie",
+              "value": "..."
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "action",
+              "value": "press-this-save-post"
+            },
+            {
+              "name": "post_status",
+              "value": "publish"
+            },
+            {
+              "name": "post_content",
+              "value": "={{ $('Webhook').item.json.body }}"
+            },
+            {
+              "name": "new-category-parent",
+              "value": "-1"
+            },
+            {
+              "name": "post_ID",
+              "value": "={{ $json.post_ID }}"
+            },
+            {
+              "name": "_wpnonce",
+              "value": "={{ $json._wpnonce }}"
+            },
+            {
+              "name": "_ajax_nonce-add-category",
+              "value": "={{ $json['_ajax_nonce-add-category'] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "06f2a7ea-ef8d-4bd8-bd6e-6bee4d46dbd7",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        880,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://octospacc.altervista.org/wp-admin/press-this.php",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
+            },
+            {
+              "name": "cookie",
+              "value": "..."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7d7968f-823f-46e1-8da3-1fd4f8f4dac8",
+      "name": "HTTP Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "post_ID",
+              "cssSelector": "#pressthis-form > input#post_ID",
+              "returnValue": "value"
+            },
+            {
+              "key": "_wpnonce",
+              "cssSelector": "#pressthis-form > input#_wpnonce",
+              "returnValue": "value"
+            },
+            {
+              "key": "_ajax_nonce-add-category",
+              "cssSelector": "#pressthis-form > input#_ajax_nonce-add-category",
+              "returnValue": "value"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b15f2bcf-8b56-4234-aee6-4c95f5085568",
+      "name": "HTML",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1,
+      "position": [
+        660,
+        220
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2acd44ca-deaa-4799-b7c0-4e221204698b",
+  "id": "Q8zbntZ6TkJrFP90",
+  "meta": {
+    "instanceId": "ef651ee586167609487d80378203fdc3f89013072d122bce558991cf777631eb"
+  },
+  "tags": []
+}
