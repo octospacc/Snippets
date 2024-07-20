@@ -29,12 +29,14 @@ use FastVolt\Helper\Markdown;
 $markdown = Markdown::new();
 
 $instance = 'https://memos.octt.eu.org';
+$footer = "<footer><p><small>Powered by <a href=\"https://memos.octt.eu.org/m/8edpaJ4n4gtdbSZVDcBve3\">MemosViewer.php</a>. [<a href=\"https://gitlab.com/octospacc/Snippets/-/blob/main/MemosViewer.php\">Source Code</a>]</small></p></footer>";
+
 $id = $_GET['id'];
 $uid = $_GET['uid'];
 
-$footer = "<footer><p><small>Powered by <a href=\"https://memos.octt.eu.org/m/8edpaJ4n4gtdbSZVDcBve3\">MemosViewer.php</a>. [<a href=\"https://gitlab.com/octospacc/Snippets/-/blob/main/MemosViewer.php\">Source Code</a>]</small></p></footer>";
-
 if ( !$id && !$uid ) {
+	// when no memo is specified, show links to the latest ones
+	// the JSON API won't list memos without auth, so we (mis)use the GRPC one
 	$memos = array_slice( explode( "\n\tmemos/", file_get_contents( "{$instance}/memos.api.v1.MemoService/ListMemos", false, stream_context_create([ 'http' => [
 		'method' => 'POST',
 		'header' => 'Content-Type: application/grpc-web+proto',
@@ -62,18 +64,31 @@ if ( !$id ) {
 	]]) ) )[1]))[0];
 }
 
+$base = file_get_contents($instance);
+
+$warning = '';
+if ( $_GET['structure'] === 'original' ) {
+	$warning = '<noscript><p class="warning">Please enable JavaScript for full functionality and perfect viewing.</p></noscript>';
+}
+
+if ( !$id ) {
+	http_response_code(400);
+	echo $base;
+	return;
+}
+
 // we always use the numeric id to get memo data via the JSON API
 $memo = json_decode(file_get_contents("{$instance}/api/v1/memos/{$id}"));
 $user = json_decode(file_get_contents("{$instance}/api/v1/{$memo->creator}"));
 
-// patch the Markdown before parsing it, so that output is quasi-consistent with Memos
+// patch Markdown before parsing it, so output is quasi-consistent with Memos
 $content = '';
 $inblock = false;
 $lines = explode( "\n", $memo->content );
 foreach ( $lines as $line ) {
 	if ( str_starts_with( $line, '```' ) ) {
 		$inblock = !$inblock;
-	} else if ( str_starts_with( $line, '#' ) ) {
+	} else if ( !$inblock && str_starts_with( $line, '#' ) ) {
 		// prevent hashtags from being interpreted as headings
 		$firstword = explode( ' ', str_replace( "\t", ' ', $line ) )[0];
 		if ( $firstword !== '#' ) {
@@ -83,6 +98,7 @@ foreach ( $lines as $line ) {
 	}
 	$content .= $line . "\n";
 	if ( !$inblock ) {
+		// the parser won't support Markdown natural-linebreak mode, so add \n's
 		$content .= "\n";
 	}
 }
@@ -97,21 +113,6 @@ foreach ( $htmlparts as $part ) {
 	//$content .= '<pre><code class="language-__html">' . $inside . '</code></pre>' . $after;
 	$content .= '<iframe src="data:text/html;utf8,' . urlencode('<meta charset="utf8"/><style>iframe{width:100%}</style>' . html_entity_decode($inside)) . '"></iframe>' . $after;
 }
-
-$warning = '';
-$base = file_get_contents($instance /* . '/m/' . $uid */);
-if ( $_GET['structure'] === 'original' ) {
-	$warning = '<noscript><p class="warning">Please enable JavaScript for full functionality and perfect viewing.</p></noscript>';
-} /* else if ( $_GET['structure'] === 'standalone' ) {
-	$base = "
-<!DOCTYPE html><html>
-<head>
-<meta charset=\"utf-8\"/>
-</head>
-<body><div id=\"root\"></div></body>
-</html>
-";
-} */
 
 $nickname = htmlspecialchars($user->nickname);
 $pagetitle = "Memo by {$nickname}";
@@ -157,7 +158,7 @@ $body = "<div class=\"MemosViewer\">
 <article>
 <header>
 <b>{$nickname}</b> on <span><a href=\"{$instance}/m/{$uid}\">{$memo->displayTime}</a>
-[<small><a href=\"{$instance}/api/v1/memos/${id}\">JSON</a></small>]</span>
+<small>[<a href=\"{$instance}/api/v1/memos/${id}\">JSON</a>]</small></span>
 {$warning}
 </header>
 {$content}
