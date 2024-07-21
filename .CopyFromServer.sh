@@ -1,2 +1,3 @@
 #!/bin/sh
-cp /Main/Server/www/Drive/Misc/Scripts/MemosViewer.php ./
+prefix=/Main/Server/www/Drive/Misc/Scripts
+cp $prefix/MemosViewer.php $prefix/MemosYacyBridgeCreate.php ./
