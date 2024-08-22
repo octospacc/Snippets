@@ -34,6 +34,10 @@ $footer = "<footer><p><small>Powered by <a href=\"https://memos.octt.eu.org/m/8e
 $id = $_GET['id'];
 $uid = $_GET['uid'];
 
+function uidfromdata ( $data ) {
+	return explode( '%', explode( '%12%16', urlencode($data) )[1] )[0];
+}
+
 if ( !$id && !$uid ) {
 	// when no memo is specified, show links to the latest ones
 	// the JSON API won't list memos without auth, so we (mis)use the GRPC one
@@ -42,15 +46,27 @@ if ( !$id && !$uid ) {
 		'header' => 'Content-Type: application/grpc-web+proto',
 		'content' => urldecode('%00%00%00%008%08%10%1A4row_status%20%3D%3D%20%22NORMAL%22%20%26%26%20visibilities%20%3D%3D%20%5B\'PUBLIC\'%5D'),
 	]]) ) ), 1 );
-	echo "<!DOCTYPE html><html lang=\"en\"><body><p>Latest public memos from <a href=\"{$instance}\">{$instance}</a>:</p><ul>";
-	foreach ( $memos as $memo ) {
-		$uid = explode( '%', explode( '%12%16', urlencode($memo) )[1] )[0];
-		if ( $uid ) {
-			//$user = explode( '*', explode( 'users/', $memo )[1] )[0];
-			echo "<li><a href=\"{$instance}/m/{$uid}\">${uid}</a></li>";
+	$titletitle = '<title>Latest public memos</title>';
+	if ( $_GET['rss'] ) {
+		header('Content-Type: application/rss+xml; charset=utf-8');
+		echo '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0">';
+		echo "<channel>{$titletitle}<description></description><link>{$instance}</link>";
+		foreach ( $memos as $memo ) {
+			if ( ($uid = uidfromdata($memo)) ) {
+				echo "<item><title>{$uid}</title><guid isPermaLink=\"true\">{$instance}/m/{$uid}</guid></item>";
+			}
 		}
+		echo '</channel></rss>';
+	} else {
+		echo "<!DOCTYPE html><html lang=\"en\"><head>{$titletitle}<link rel=\"alternate\" type=\"application/rss+xml\" href=\"?rss=1\"/></head><body><p>Latest public memos from <a href=\"{$instance}\">{$instance}</a>:</p><ul>";
+		foreach ( $memos as $memo ) {
+			if ( ($uid = uidfromdata($memo)) ) {
+				//$user = explode( '*', explode( 'users/', $memo )[1] )[0];
+				echo "<li><a href=\"{$instance}/m/{$uid}\">${uid}</a></li>";
+			}
+		}
+		echo "</ul>{$footer}</body></html>";
 	}
-	echo "</ul>{$footer}</body></html>";
 	return;
 }
 
