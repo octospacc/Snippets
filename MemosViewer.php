@@ -70,15 +70,16 @@ if ( !$id && !$uid ) {
 	return;
 }
 
-if ( !$id ) {
-	// as of writing this, there is no JSON API to get a memo by its uid
-	// so, we first get the numeric id by sloppily parsing the GRPC API
-	$id = explode( '%', urlencode(explode( 'memos/', file_get_contents( "{$instance}/memos.api.v1.MemoService/SearchMemos", false, stream_context_create([ 'http' => [
-		'method' => 'POST',
-		'header' => 'Content-Type: application/grpc-web+proto',
-		'content' => urldecode('%00%00%00%00!%0A%1Fuid%20%3D%3D%20%22' . $uid . '%22'),
-	]]) ) )[1]))[0];
-}
+// pre-v0.22.4
+//if ( !$id ) {
+//	// as of writing this, there is no JSON API to get a memo by its uid
+//	// so, we first get the numeric id by sloppily parsing the GRPC API
+//	$id = explode( '%', urlencode(explode( 'memos/', file_get_contents( "{$instance}/memos.api.v1.MemoService/SearchMemos", false, stream_context_create([ 'http' => [
+//		'method' => 'POST',
+//		'header' => 'Content-Type: application/grpc-web+proto',
+//		'content' => urldecode('%00%00%00%00!%0A%1Fuid%20%3D%3D%20%22' . $uid . '%22'),
+//	]]) ) )[1]))[0];
+//}
 
 $base = file_get_contents($instance);
 
@@ -87,14 +88,18 @@ if ( $_GET['structure'] === 'original' ) {
 	$warning = '<noscript><p class="warning">Please enable JavaScript for full functionality and perfect viewing.</p></noscript>';
 }
 
-if ( !$id ) {
-	http_response_code(400);
-	echo $base;
-	return;
-}
+// pre-v0.22.4
+//if ( !$id ) {
+//	http_response_code(400);
+//	echo $base;
+//	return;
+//}
 
-// we always use the numeric id to get memo data via the JSON API
-$memo = json_decode(file_get_contents("{$instance}/api/v1/memos/{$id}"));
+// pre-v0.22.4: we always use the numeric id to get memo data via the JSON API
+//$memo = json_decode(file_get_contents("{$instance}/api/v1/memos/{$id}"));
+
+$idoruidendpoint = ($uid ? "memos:by-uid/{$uid}" : "memos/{$id}");
+$memo = json_decode(file_get_contents("{$instance}/api/v1/{$idoruidendpoint}")); // post-v0.22.4
 $user = json_decode(file_get_contents("{$instance}/api/v1/{$memo->creator}"));
 
 // patch Markdown before parsing it, so output is quasi-consistent with Memos
@@ -174,7 +179,7 @@ $body = "<div class=\"MemosViewer\">
 <article>
 <header>
 <b>{$nickname}</b> on <span><a href=\"{$instance}/m/{$uid}\">{$memo->displayTime}</a>
-<small>[<a href=\"{$instance}/api/v1/memos/${id}\">JSON</a>]</small></span>
+<small>[<a href=\"{$instance}/api/v1/${idoruidendpoint}\">JSON</a>]</small></span>
 {$warning}
 </header>
 {$content}
