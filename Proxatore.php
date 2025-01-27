@@ -285,7 +285,7 @@ if (isset($_GET['proxatore-search']) && ($search = $_GET['proxatore-search']) !=
         ];
         //if ((in_array($platform, PLATFORMS_VIDEO) && !$immediateResult['video']) || !$immediateResult['image']) {
             $html = fetchContent(makeEmbedUrl($platform, $relativeUrl))['body'];
-            if (!$immediateResult['video'] && ($vidpos = strpos($html, '.mp4'))) {
+            if (!$immediateResult['video'] && ($vidpos = (strpos($html, '.mp4?') ?? strpos($html, '.mp4')))) {
                 //$startpos = 0;//strpos(strrev(substr($html, 0, $vidpos)), '"');
                 $endpos = strpos($html, '"', $vidpos); //strpos(substr($html, $vidpos), '"');
                 $vidstr = substr($html, 0, $endpos);
