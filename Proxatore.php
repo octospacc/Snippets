@@ -2,6 +2,7 @@
 const APPNAME = '🎭️ Proxatore';
 
 const PLATFORMS = [
+	'spaccbbs' => ['bbs.spacc.eu.org'],
 	'facebook' => ['facebook.com', 'm.facebook.com'],
 	'instagram' => ['instagram.com'],
     //'juxt' => ['juxt.pretendo.network'],
@@ -22,7 +23,7 @@ const PLATFORMS_ALIASES = [
 const PLATFORMS_PROXIES = [
 	'instagram' => ['ddinstagram.com', 'd.ddinstagram.com'],
 	'tiktok' => ['vxtiktok.com'],
-	'twitter' => ['fxtwitter.com', 'vxtwitter.com'],
+	'twitter' => ['fxtwitter.com', 'vxtwitter.com', 'fixvx.com'],
 	'x' => ['fixupx.com', 'stupidpenisx.com'],
 ];
 
