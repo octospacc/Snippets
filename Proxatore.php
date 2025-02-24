@@ -5,9 +5,9 @@ const PLATFORMS = [
 	'spaccbbs' => ['bbs.spacc.eu.org'],
 	'facebook' => ['facebook.com', 'm.facebook.com'],
 	'instagram' => ['instagram.com'],
-    //'juxt' => ['juxt.pretendo.network'],
+	//'juxt' => ['juxt.pretendo.network'],
 	'reddit' => ['old.reddit.com', 'reddit.com'],
-    'spotify' => ['open.spotify.com'],
+	'spotify' => ['open.spotify.com'],
 	'telegram' => ['t.me', 'telegram.me'],
 	'tiktok' => ['tiktok.com'],
 	'twitter' => ['twitter.com'],
@@ -24,12 +24,12 @@ const PLATFORMS_PROXIES = [
 	'instagram' => ['ddinstagram.com', 'd.ddinstagram.com'],
 	'tiktok' => ['vxtiktok.com'],
 	'twitter' => ['fxtwitter.com', 'vxtwitter.com', 'fixvx.com'],
-	'x' => ['fixupx.com', 'stupidpenisx.com'],
+	'x' => ['fixupx.com', 'girlcockx.com', 'stupidpenisx.com'],
 ];
 
 const PLATFORMS_REDIRECTS = [
 	'vm.tiktok.com' => 'tiktok',
-    //'youtu.be' => 'youtube',
+	//'youtu.be' => 'youtube',
 ];
 
 const PLATFORMS_HACKS = ['twitter', 'x'];
@@ -45,6 +45,7 @@ const PLATFORMS_PARAMS = [
 ];
 
 const EMBEDS = [
+	'spotify' => ['open.spotify.com/embed/'],
 	'reddit' => ['embed.reddit.com'],
 ];
 
