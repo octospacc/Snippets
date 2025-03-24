@@ -26,9 +26,9 @@ if ( php_sapi_name() === 'cli' && $argv[1] ) {
 	return;
 }
 
-$headers = "X-NoProxy: 1\n";
+$headers = "X-NoProxy: 1\ncontent-type: application/grpc-web+proto\n";
 foreach ( getallheaders() as $key => $value ) {
-	if ( !$value || $key === 'Accept-Encoding' ) {
+	if ( !$value || $key === 'Accept-Encoding' || $key === 'Content-Type' ) {
 		continue;
 	}
 	if ( $key === 'Host' ) {
