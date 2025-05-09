@@ -1,11 +1,13 @@
 <?php
 const APPNAME = '🎭️ Proxatore';
+const COBALT_API = 'http://192.168.1.125:9010/';
 
 const OPTIONS_DEFAULTS = [
     'embedfirst' => false,
     'history' => true,
     'htmlmedia' => false,
     'relativemedia' => false,
+    'mediaproxy' => false,
 ];
 
 const OPTIONS_OVERRIDES = [
@@ -23,7 +25,7 @@ const PLATFORMS = [
 	'reddit' => ['old.reddit.com', 'reddit.com'],
 	'spotify' => ['open.spotify.com'],
 	'telegram' => ['t.me', 'telegram.me'],
-    'threads' => ['threads.net'],
+    'threads' => ['threads.net', 'threads.com'],
 	'tiktok' => ['tiktok.com'],
 	'twitter' => ['twitter.com'],
 	'x' => ['x.com'],
@@ -39,7 +41,7 @@ const PLATFORMS_ALIASES = [
 
 const PLATFORMS_PROXIES = [
     'bluesky' => ['fxbsky.app'],
-	'instagram' => ['ddinstagram.com', 'd.ddinstagram.com'],
+	'instagram' => ['ddinstagram.com', 'd.ddinstagram.com', 'kkinstagram.com'],
     'threads' => ['vxthreads.net'],
 	'tiktok' => ['vxtiktok.com'],
 	'twitter' => ['fxtwitter.com', 'vxtwitter.com', 'fixvx.com'],
@@ -57,6 +59,8 @@ const PLATFORMS_API = [
         'video' => "['items'][0]['video_info']['url_list'][0]",
     ]],
 ];
+
+const PLATFORMS_COBALT = ['instagram'];
 
 const PLATFORMS_FAKE404 = ['telegram'];
 
@@ -101,29 +105,37 @@ define('APP_SLUG', explode(' ', APPNAME)[1]);
 define('SCRIPT_NAME', /* $_SERVER['SCRIPT_NAME'] . */ '/');
 define('HISTORY_FILE', './' . APP_SLUG . '.history.jsonl');
 
-function inPlatformArray($platform, $array) {
+function normalizePlatform(string $platform): string {
     if (str_contains($platform, '.')) {
-        $platform = implode('.', array_slice(explode('.', $platform), -2));
+        $platform = lstrip($platform, '.', -2); //implode('.', array_slice(explode('.', $platform), -2));
     }
-    return in_array($platform, $array);
+    return $platform;
 }
 
-function lstrip($str, $sub) {
-	return implode($sub, array_slice(explode($sub, $str), 1));
+function inPlatformArray(string $platform, array $array): bool {
+    return in_array(normalizePlatform($platform), $array);
 }
 
-function urlLast($url) {
+function platformMapGet(string $platform, array $array): mixed {
+    return $array[normalizePlatform($platform)] ?? null;
+}
+
+function lstrip(string $str, string $sub, int $num): string {
+	return implode($sub, array_slice(explode($sub, $str), $num));
+}
+
+function urlLast(string $url): string {
 	return end(explode('/', trim(parse_url($url, PHP_URL_PATH), '/')));
 }
 
-function parseAbsoluteUrl($str) {
+function parseAbsoluteUrl(string $str) {
     $strlow = strtolower($str);
     if (str_starts_with($strlow, 'http://') || str_starts_with($strlow, 'https://')) {
         return implode('://', array_slice(explode('://', $str), 1));
     }
 }
 
-function redirectTo($url) {
+function redirectTo($url): void {
     if (!($absolute = parseAbsoluteUrl($url)) && !readProxatoreParam('history') /* && !(str_contains($url, '?proxatore-history=false') || str_contains($url, '&proxatore-history=false')) */) {
         parse_str(parse_url($url, PHP_URL_QUERY), $params);
         if (!isset($params['proxatore-history'])) {
@@ -134,7 +146,7 @@ function redirectTo($url) {
 	die();
 }
 
-function fetchContent($url, $redirects=-1) {
+function fetchContent(string $url, int $redirects=-1): array {
 	$ch = curl_init();
 	//$useragent = 'Mozilla/5.0 (X11; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0';
     //$useragent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0';
@@ -147,20 +159,20 @@ function fetchContent($url, $redirects=-1) {
 	$data = [
 		'body' => curl_exec($ch),
 		'code' => curl_getinfo($ch, CURLINFO_HTTP_CODE),
-		'url' => curl_getinfo($ch, CURLINFO_REDIRECT_URL),
+		'url' => curl_getinfo($ch, CURLINFO_REDIRECT_URL) ?: curl_getinfo($ch, CURLINFO_EFFECTIVE_URL),
+        // 'error' => curl_error($ch),
 	];
 	curl_close($ch);
 	return $data;
 }
 
-function makeCanonicalUrl($item) {
-	if (!$item) {
-		return NULL;
-	}
-	return 'https://' . (PLATFORMS[$item['platform']][0] ?: $item['platform']) . '/' . $item['relativeurl'];
+function makeCanonicalUrl(array|null $item): string|null {
+    return ($item
+        ? ('https://' . (PLATFORMS[$item['platform']][0] ?: $item['platform']) . '/' . $item['relativeurl'])
+        : null);
 }
 
-function makeEmbedUrl($platform, $relativeUrl) {
+function makeEmbedUrl(string $platform, string $relativeUrl): string {
     $url = NULL;
 	if (isset(EMBEDS_PREFIXES_SIMPLE[$platform])) {
 		$url = EMBEDS_PREFIXES_SIMPLE[$platform] . urlLast($relativeUrl);
@@ -186,11 +198,14 @@ function makeEmbedUrl($platform, $relativeUrl) {
 //	}
 }
 
-function makeScrapeUrl($platform, $relativeUrl) {
-	return 'https://' . ((in_array($platform, PLATFORMS_HACKS) ? (PLATFORMS_PROXIES[$platform][0] ?: PLATFORMS[$platform][0]) : PLATFORMS[$platform][0]) ?: $platform) . '/' . $relativeUrl;
+function makeScrapeUrl(string $platform, string $relativeUrl): string {
+	return 'https://' . ((inPlatformArray($platform, PLATFORMS_HACKS)
+        ? (PLATFORMS_PROXIES[$platform][0] ?: PLATFORMS[$platform][0])
+        : PLATFORMS[$platform][0]
+    ) ?: $platform) . '/' . $relativeUrl;
 }
 
-function getHtmlAttributes($doc, $tag, $attr) {
+function getHtmlAttributes(DOMDocument|string $doc, string $tag, string $attr): array {
     if (is_string($doc)) {
         $doc = htmldom($doc);
     }
@@ -201,7 +216,7 @@ function getHtmlAttributes($doc, $tag, $attr) {
     return $list;
 }
 
-function parseMetaTags($doc) {
+function parseMetaTags(DOMDocument $doc): array {
 	$tags = [];
 	foreach ($doc->getElementsByTagName('meta') as $meta) {
 		if ($meta->hasAttribute('name') || $meta->hasAttribute('property')) {
@@ -211,7 +226,7 @@ function parseMetaTags($doc) {
 	return $tags;
 }
 
-function loadHistory() {
+function loadHistory(): array {
 	$history = [];
 	if (file_exists(HISTORY_FILE)) {
 		$lines = file(HISTORY_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -222,8 +237,8 @@ function loadHistory() {
 	return $history;
 }
 
-function saveHistory($entry) {
-    if (in_array($entry['platform'], PLATFORMS_FAKE404)) {
+function saveHistory($entry): void {
+    if (inPlatformArray($entry['platform'], PLATFORMS_FAKE404)) {
         $history = searchExactHistory($entry['platform'], implode('/', array_slice(explode('/', $entry['relativeurl']), -1)));
         if (sizeof($history)) {
             unset($history[0]['relativeurl']);
@@ -246,12 +261,12 @@ function saveHistory($entry) {
 	file_put_contents(HISTORY_FILE, implode(PHP_EOL, $lines) . PHP_EOL, LOCK_EX);
 }
 
-function searchHistory($keyword) {
+function searchHistory(string $query): array {
 	$results = [];
     $fake404 = [];
 	foreach (loadHistory() as $entry) {
-		if (stripos(json_encode($entry, JSON_UNESCAPED_SLASHES), $keyword) !== false) {
-            if (in_array($entry['platform'], PLATFORMS_FAKE404)) {
+		if (stripos(json_encode($entry, JSON_UNESCAPED_SLASHES), $query) !== false) {
+            if (inPlatformArray($entry['platform'], PLATFORMS_FAKE404)) {
                 $entry2 = $entry;
                 unset($entry2['relativeurl']);
                 foreach ($fake404 as $item) {
@@ -268,20 +283,20 @@ function searchHistory($keyword) {
 	return $results;
 }
 
-function searchExactHistory($platform, $relativeUrl) {
+function searchExactHistory(string $platform, string $relativeUrl): array {
     return searchHistory(json_encode([
         'platform' => $platform,
         'relativeurl' => $relativeUrl,
     ], JSON_UNESCAPED_SLASHES));
 }
 
-function htmldom($body) {
+function htmldom(string $body): DOMDocument {
     $doc = new DOMDocument();
     $doc->loadHTML(mb_convert_encoding($body, 'HTML-ENTITIES', 'UTF-8'));
     return $doc;
 }
 
-function getAnyVideoUrl($txt) {
+function getAnyVideoUrl(string $txt) {
     if ($vidpos = (strpos($txt, '.mp4?') ?? strpos($txt, '.mp4'))) {
         $endpos = strpos($txt, '"', $vidpos);
         $vidstr = substr($txt, 0, $endpos);
@@ -293,7 +308,7 @@ function getAnyVideoUrl($txt) {
     }
 }
 
-function makeResultObject($platform, $relativeUrl, $metaTags) {
+function makeResultObject(string $platform, string $relativeUrl, array $metaTags): array {
     return [
         'platform' => $platform,
         'relativeurl' => $relativeUrl,
@@ -311,7 +326,7 @@ function makeResultObject($platform, $relativeUrl, $metaTags) {
     ];
 }
 
-function makeParamsRelativeUrl($platform, $url) {
+function makeParamsRelativeUrl(string $platform, string $url): string {
     parse_str(parse_url($url, PHP_URL_QUERY), $params);
     $url = parse_url($url, PHP_URL_PATH) . '?';
     foreach ($params as $key => $value) {
@@ -322,19 +337,19 @@ function makeParamsRelativeUrl($platform, $url) {
     return rtrim($url, '?&');
 }
 
-function readBoolParam($key, $default=null, $array=null) {
+function readBoolParam(string $key, $default=null, $array=null) {
     if (!$array) {
         $array = $_GET;
     }
-    $value = $array[$key];
-    if (isset($value) && $value !== '') {
+    $value = $array[$key] ?? null;
+    if ($value && $value !== '') {
         return filter_var($value, FILTER_VALIDATE_BOOLEAN);
     } else {
         return $default;
     }
 }
 
-function readProxatoreParam($key, $array=null) {
+function readProxatoreParam(string $key, $array=null) {
     return readBoolParam("proxatore-{$key}", OPTIONS_DEFAULTS[$key], $array);
     // TODO handle domain HTTP referer overrides
 }
@@ -351,19 +366,71 @@ function getPageData($platform, $relativeUrl) {
         } else {
             $relativeUrl = parse_url($relativeUrl, PHP_URL_PATH);
         }
+        $query = parse_url($data['url'], PHP_URL_QUERY);
+        //$relativeUrl = substr((parse_url($data['url'], PHP_URL_PATH) . ($query ? "?{$query}" : '')), 1);
         $data['doc'] = htmldom($data['body']);
         $data['result'] = makeResultObject($platform, $relativeUrl, parseMetaTags($data['doc']));
         return $data;
     }
 }
 
-function handleApiRequest($segments) {
+function getCobaltVideo(string $url) {
+    $cobaltData = json_decode(file_get_contents(COBALT_API, false, stream_context_create(['http' => [
+        'header' => [
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ],
+        'method' => 'POST',
+        'content' => json_encode(['url' => $url]),
+    ]])));
+    if ($cobaltData->status === 'redirect' && strpos($cobaltData->url, '.mp4')) {
+        return $cobaltData->url;
+    }
+}
+
+function fetchPageMedia(string $url, array &$result): void {
+    $platform = $result['platform'];
+    $relativeUrl = $result['relativeurl'];
+    //if ((in_array($platform, PLATFORMS_VIDEO) && !$immediateResult['video']) || !$immediateResult['image']) {
+    if ($api = platformMapGet($platform, PLATFORMS_API)) {
+        $data = json_decode(fetchContent($api[0] . urlLast($relativeUrl))['body'], true);
+        $values = [];
+        foreach ($api[1] as $key => $query) {
+            $values[$key] = eval("return \$data{$query};");
+        }
+        $result = array_merge($result, $values);
+    } else {
+        $cobaltVideo = null;
+        if (COBALT_API && inPlatformArray($platform, PLATFORMS_COBALT)) {
+            $cobaltVideo = getCobaltVideo($url);
+        }
+        $html = fetchContent(makeEmbedUrl($platform, $relativeUrl))['body'];
+        if (!$result['video']) {
+            $result['video'] = $cobaltVideo ?? getAnyVideoUrl($html);
+        }
+        if (!inPlatformArray($platform, PLATFORMS_NOIMAGES) /* !$immediateResult['image'] */) {
+            $result['images'] = getHtmlAttributes($html, 'img', 'src');
+            // if (sizeof($immediateResult['images'])) {
+            //     //$immediateResult['image'] = $imgs[0];
+            // }
+        }
+    }
+}
+
+function getYoutubeStreamUrl(string $relativeUrl): string {
+    if ($video = preg_replace("/[^A-Za-z0-9-_]/", '', escapeshellarg(substr($relativeUrl, -11)))) {
+        return trim(shell_exec("yt-dlp -g '{$video}'"));
+    }
+}
+
+// TODO: redesign the endpoint names, they're kind of a mess
+function handleApiRequest(array $segments): void {
 	$api = substr($segments[0], 2, -2);
     $platform = $segments[1];
     $relativeUrl = implode('/', array_slice($segments, 2));
     if (($api === 'proxy' || $api === 'media')) {
-        if ($platform === 'youtube' && ($video = preg_replace("/[^A-Za-z0-9-_]/", '', escapeshellarg(substr($relativeUrl, -11))))) {
-            header('Location: ' . shell_exec("yt-dlp -g '{$video}'"));
+        if ($platform === 'youtube') {
+            header('Location: ' . getYoutubeStreamUrl($relativeUrl));
         } else if ($api === 'media' && end($segments) === '0') {
             $relativeUrl = substr($relativeUrl, 0, -2);
             $data = getPageData($platform, $relativeUrl)['result'];
@@ -371,14 +438,17 @@ function handleApiRequest($segments) {
                 header('Location: ' . $url);
             }
         }
+    } else if ($api === 'fileproxy' && $platform === 'youtube') {
+        header('Content-Type: video/mp4');
+        readfile(getYoutubeStreamUrl($relativeUrl));
     } else if ($api === 'embed') {
         header('Location: ' . makeEmbedUrl($platform, $relativeUrl));
     }
     die();
 }
 
-function iframeHtml($result) { ?>
-	<?php if (in_array($result['platform'], PLATFORMS_ORDERED)): ?>
+function iframeHtml($result): void { ?>
+	<?php if (inPlatformArray($result['platform'], PLATFORMS_ORDERED)): ?>
         <div>
             <a class="button" href="<?= abs(end(explode('/', $result['relativeurl']))-1) ?>">⬅️ Previous</a>
             <a class="button" style="float:right;" href="<?= end(explode('/', $result['relativeurl']))+1 ?>">➡️ Next</a>
@@ -424,7 +494,7 @@ if (isset($_GET['proxatore-search']) && ($search = $_GET['proxatore-search']) !=
     } else {
         foreach ([PLATFORMS_PROXIES, PLATFORMS, EMBEDS] as $array) {
             foreach ($array as $platform => $domains) {
-                if (in_array($upstream, $domains) || in_array(lstrip($upstream, 'www.'), $domains)) {
+                if (in_array($upstream, $domains) || in_array(lstrip($upstream, 'www.', 1), $domains)) {
                     return redirectTo($platform . '/' . $relativeUrl);
                 }
             }
@@ -450,38 +520,18 @@ if (isset($_GET['proxatore-search']) && ($search = $_GET['proxatore-search']) !=
     if ($data = getPageData($platform, $relativeUrl)) {
         http_response_code($data['code']);
         $immediateResult = $data['result'];
-        $relativeUrl = $immediateResult['relativeurl'];
         if ($immediateResult['video'] && $immediateResult['videotype'] === 'text/html' && readProxatoreParam('htmlmedia')) {
-            $immediateResult['video'] = SCRIPT_NAME . "__proxy__/{$platform}/{$immediateResult['video']}";
+            $proxy = ((readProxatoreParam('mediaproxy') || $_GET['proxatore-mediaproxy'] === 'video') ? 'file' : '');
+            $immediateResult['video'] = SCRIPT_NAME . "__{$proxy}proxy__/{$platform}/{$immediateResult['video']}";
             $immediateResult['videotype'] = 'video/mp4';
         }
-        //if ((in_array($platform, PLATFORMS_VIDEO) && !$immediateResult['video']) || !$immediateResult['image']) {
-        if (isset(PLATFORMS_API[$platform])) {
-            $api = PLATFORMS_API[$platform];
-            $data = json_decode(fetchContent($api[0] . urlLast($relativeUrl))['body'], true);
-            $values = [];
-            foreach ($api[1] as $key => $query) {
-                $values[$key] = eval("return \$data{$query};");
-            }
-            $immediateResult = array_merge($immediateResult, $values);
-        } else {
-            $html = fetchContent(makeEmbedUrl($platform, $relativeUrl))['body'];
-            if (!$immediateResult['video']) {
-                $immediateResult['video'] = getAnyVideoUrl($html);
-            }
-            if (!inPlatformArray($platform, PLATFORMS_NOIMAGES) /* !$immediateResult['image'] */) {
-                $immediateResult['images'] = getHtmlAttributes($html, 'img', 'src');
-                // if (sizeof($immediateResult['images'])) {
-                //     //$immediateResult['image'] = $imgs[0];
-                // }
-            }
-        }
+        fetchPageMedia($data['url'], $immediateResult);
         //}
         //if ($immediateResult['title'] || $immediateResult['description']) {
         //    saveHistory($immediateResult);
         //} else 
         if ($content['code'] >= 400) {
-            $searchResults = searchExactHistory($platform, $relativeUrl);
+            $searchResults = searchExactHistory($platform, $immediateResult['relativeurl']);
             if (sizeof($searchResults)) {
                 $immediateResult = $searchResults[0];
             }
