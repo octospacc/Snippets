@@ -57,6 +57,7 @@ define('HISTORY_FILE', './Proxatore.history.jsonl');
 
 const PLATFORMS = [
     'spaccbbs' => ['bbs.spacc.eu.org'],
+    'bilibili' => ['bilibili.com'],
     'bluesky' => ['bsky.app'],
     'facebook' => ['facebook.com', 'm.facebook.com'],
     'instagram' => ['instagram.com'],
@@ -109,7 +110,7 @@ const PLATFORMS_API = [
     ],
 ];
 
-const PLATFORMS_COBALT = ['instagram'];
+const PLATFORMS_COBALT = ['instagram', 'bilibili'];
 
 const PLATFORMS_FAKE404 = ['telegram'];
 
@@ -117,7 +118,7 @@ const PLATFORMS_HACKS = ['bluesky', 'threads', 'twitter', 'x'];
 
 const PLATFORMS_ORDERED = ['telegram'];
 
-//const PLATFORMS_VIDEO = ['facebook', 'instagram'];
+// const PLATFORMS_VIDEO = ['youtube', 'bilibili']; // ['facebook', 'instagram'];
 
 const PLATFORMS_WEBVIDEO = ['raiplay'];
 
@@ -472,6 +473,8 @@ function getCobaltVideo(string $url) {
     ]));
     if ($cobaltData->status === 'redirect' && strpos($cobaltData->url, '.mp4')) {
         return $cobaltData->url;
+    } else if ($cobaltData->status === 'tunnel' && strpos($cobaltData->filename, '.mp4')) {
+        return SCRIPT_NAME . '__cobaltproxy__/_/' . lstrip($cobaltData->url, '/', 3);
     }
 }
 
@@ -567,6 +570,9 @@ function handleApiRequest(array $segments): void {
             default:
                 ffmpegStream('https://' . PLATFORMS[$platform][0] . '/' . lstrip($relativeUrl, '/', 3));
         }
+    } else if ($api === 'cobaltproxy') {
+        header('Content-Type: video/mp4');
+        readfile(COBALT_API . $relativeUrl);
     } else if ($api === 'embed') {
         header('Location: ' . makeEmbedUrl($platform, $relativeUrl));
     }
@@ -584,17 +590,26 @@ function iframeHtml($result): void { ?>
             <a class="button" style="float:right;" href="<?= end(explode('/', $result['relativeurl']))+1 ?>">➡️ Next</a>
         </div>
     <?php endif; ?>
-    <iframe src="<?= htmlspecialchars(makeEmbedUrl($result['platform'], $result['relativeurl'])) ?>" hidden="hidden" onload="this.hidden=false;"></iframe>
+    <iframe sandbox="allow-scripts allow-same-origin" src="<?= htmlspecialchars(makeEmbedUrl($result['platform'], $result['relativeurl'])) ?>" hidden="hidden" onload="this.hidden=false;"></iframe>
 <?php }
 
 $path = lstrip($_SERVER['REQUEST_URI'], SCRIPT_NAME, 1); //$_SERVER['REQUEST_URI']; //parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$immediateResult = null;
+$searchResults = $immediateResult = null;
 
-if (isset(getQueryArray()['proxatore-search']) && ($search = getQueryArray()['proxatore-search']) !== '') {
+if ($search = readProxatoreParam('search')) {
     if ($url = parseAbsoluteUrl($search)) {
         return redirectTo($url);
     } else {
         $searchResults = searchHistory($search);
+    }
+} else if ($group = readProxatoreParam('group')) {
+    $searchResults = [];
+    foreach (json_decode($group) as $path) {
+        $segments = explode('/', trim($path, '/'));
+        $platform = array_shift($segments);
+        $relativeUrl = implode('/', $segments);
+        $data = getPageData($platform, $relativeUrl);
+        $searchResults[] = $data['result'];
     }
 } else {
     $path = trim($path, '/');
@@ -984,9 +999,9 @@ ul.platforms a {
                 <dt>A dedicated domain name</dt>
                     <dd>To host the program properly, instead of in a subpath.</dd>
                 <dt><a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp</a> on your server</dt>
-                    <dd>To stream YouTube videos in MP4 format.</dd>
+                    <dd>To stream videos from various platforms in MP4 format.</dd>
                 <dt>A <a href="https://github.com/imputnet/cobalt">cobalt</a> API server</dt>
-                    <dd>To have a fallback for access to media files for most platforms.</dd>
+                    <dd>To have a fallback for access to media files for the most popular platforms.</dd>
             </dl>
         </details>';
         echo '<p>Made with 🕸️ and 🧨 by <a href="https://hub.octt.eu.org">OctoSpacc</a>.
@@ -1021,7 +1036,7 @@ ul.platforms a {
                         <audio src="<?= htmlspecialchars($item['audio']) ?>" controls="controls"></audio>
                     <?php endif; ?>
                     <?php foreach (array_merge([$item['image']], $item['images']) as $image): ?>
-                        <a class="img" href="<?= htmlspecialchars($image ?? '') ?>" target="_blank" rel="noopener nofollow">
+                        <a class="img" <?= $immediateResult ? 'href="' . htmlspecialchars($image ?? '') . '" target="_blank" rel="noopener nofollow"' : 'href="' . htmlspecialchars(SCRIPT_NAME . $item['platform'] . '/' . $item['relativeurl']) . '"' ?>>
                             <img src="<?= htmlspecialchars($image ?? '') ?>" onerror="this.hidden=true" />
                         </a>
                     <?php endforeach; ?>
