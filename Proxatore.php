@@ -183,6 +183,10 @@ function parseAbsoluteUrl(string $str) {
     }
 }
 
+function makeSelfUrl(string $str=''): string {
+    return $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['SERVER_NAME'] . SCRIPT_NAME . $str;
+}
+
 function redirectTo($url): void {
     if (!($absolute = parseAbsoluteUrl($url)) && !readProxatoreBool('history') /* && !(str_contains($url, '?proxatore-history=false') || str_contains($url, '&proxatore-history=false')) */) {
         parse_str(parse_url($url, PHP_URL_QUERY), $params);
@@ -590,7 +594,7 @@ function iframeHtml($result): void { ?>
             <a class="button" style="float:right;" href="<?= end(explode('/', $result['relativeurl']))+1 ?>">➡️ Next</a>
         </div>
     <?php endif; ?>
-    <iframe sandbox="allow-scripts allow-same-origin" src="<?= htmlspecialchars(makeEmbedUrl($result['platform'], $result['relativeurl'])) ?>" hidden="hidden" onload="this.hidden=false;"></iframe>
+    <iframe sandbox="allow-scripts allow-same-origin" allow="fullscreen" allowfullscreen="true" src="<?= htmlspecialchars(makeEmbedUrl($result['platform'], $result['relativeurl'])) ?>" hidden="hidden" onload="this.hidden=false;"></iframe>
 <?php }
 
 $path = lstrip($_SERVER['REQUEST_URI'], SCRIPT_NAME, 1); //$_SERVER['REQUEST_URI']; //parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -748,7 +752,7 @@ iframe {
     border: none;
 }
 .container {
-    max-width: 900px;
+    max-width: 1200px;
     padding: 20px;
     background: white;
     border-radius: 12px;
@@ -762,7 +766,7 @@ body.normal .container {
 body.embed .container {
     width: 100%;
 }
-a.button {
+.button {
     padding: 0.5em;
     border: 1px solid gray;
     border-radius: 8px;
@@ -770,13 +774,15 @@ a.button {
     margin: 0.5em;
     display: inline-block;
 }
-a.button.block {
+.button.block {
     display: block;
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
+    width: -moz-available;
+    width: -webkit-fill-available;
 }
-a.button.block code {
+.button.block code {
     text-decoration: underline;
 }
 h1, h1 a {
@@ -953,7 +959,7 @@ ul.platforms a {
         <h1><a href="<?= SCRIPT_NAME ?>"><?= APP_NAME; ?></a></h1>
         <form method="GET" action="<?= SCRIPT_NAME ?>">
             <div class="search-bar">
-                <input type="text" required="required" name="proxatore-search" placeholder="Search or Input URL" value="<?= htmlspecialchars(getQueryArray()['proxatore-search'] ?? makeCanonicalUrl($immediateResult) ?: '') ?>">
+                <input type="text" required="required" name="proxatore-search" placeholder="Search or Input URL" value="<?= htmlspecialchars(readProxatoreParam('search') ?? makeCanonicalUrl($immediateResult) ?: ($group = readProxatoreParam('group') ? makeSelfUrl('?proxatore-group=' . urlencode($group)) : '')) ?>">
                 <button type="submit">Go 💣️</button>
             </div>
             <details style="margin-bottom: 20px;">
@@ -1047,11 +1053,11 @@ ul.platforms a {
                         <small><?= htmlspecialchars($item['platform']) ?><!-- <?= htmlspecialchars($item['datetime'] ?? '') ?> --></small>
                     </p>
                     <?php if ($item['description']): ?><p class="description"><?= /*htmlspecialchars*/($item['description']) ?></p><?php endif; ?>
-                    <p>
-                        <a class="button block" href="<?= htmlspecialchars(makeCanonicalUrl($item)) ?>" target="_blank" rel="noopener nofollow">
+                    <p class="actions">
+                        <a class="button block external" href="<?= htmlspecialchars(makeCanonicalUrl($item)) ?>" target="_blank" rel="noopener nofollow">
                             Original on <code><?= htmlspecialchars(PLATFORMS[$item['platform']][0] ?: $item['platform']) ?>/<?= htmlspecialchars($item['relativeurl']) ?></code>
                         </a>
-                        <a class="button block" href="<?= htmlspecialchars(SCRIPT_NAME . $item['platform'] . '/' . $item['relativeurl']) ?>" <?php if (readProxatoreParam('viewmode') === 'embed') echo 'target="_blank"'; ?> >
+                        <a class="button block internal" href="<?= htmlspecialchars(SCRIPT_NAME . $item['platform'] . '/' . $item['relativeurl']) ?>" <?php if (readProxatoreParam('viewmode') === 'embed') echo 'target="_blank"'; ?> >
                             <?= readProxatoreParam('viewmode') === 'embed' ? ('Powered by ' . APP_NAME) : (APP_NAME . ' Permalink') ?>
                         </a>
                     </p>
@@ -1061,5 +1067,58 @@ ul.platforms a {
     <?php endif; ?>
     <?php if (isset($immediateResult) && !readProxatoreBool('embedfirst') && readProxatoreParam('viewmode') !== 'embed') iframeHtml($immediateResult); ?>
 </div>
+<script>(function(){
+const groupLink = (group) => `?proxatore-group=${encodeURIComponent(JSON.stringify(group))}`;
+const groupRedirect = (group) => location.href = groupLink(group);
+const groupPersist = (group) => localStorage.setItem('proxatore-group', group.length ? JSON.stringify(group) : null);
+const groupUpdate = (group) => {
+    groupPersist(group);
+    groupRedirect(group);
+};
+const moveItem = (data, from, to) => data.splice(to, 0, data.splice(from, 1)[0]);
+const openingGroup = JSON.parse((new URLSearchParams(location.search)).get('proxatore-group'));
+const editingGroup = JSON.parse(localStorage.getItem('proxatore-group'));
+let group = openingGroup || editingGroup;
+if (group) {
+    document.querySelector('form').innerHTML += '<details id="ProxatoreGroup" style="margin-bottom: 20px;"><summary>Results Group</summary><ul></ul></details>';
+    if (editingGroup) {
+        ProxatoreGroup.open = true;
+        ProxatoreGroup.querySelector('summary').innerHTML = `<a href="${groupLink(group)}">Results Group</a>`;
+    }
+    ProxatoreGroup.querySelector('summary').innerHTML += ` <button>${editingGroup ? 'Cancel' : 'Edit'}</button>`;
+    ProxatoreGroup.querySelector('summary button').addEventListener('click', (ev) => {
+        ev.preventDefault();
+        groupUpdate(editingGroup ? [] : group);
+    });
+    ProxatoreGroup.querySelector('ul').innerHTML = Object.keys(group).map(id => `<li data-id="${id}"><button class="up">⬆</button> <button class="down">⬇</button> <button class="remove">Remove</button> <code><a href="<?= makeSelfUrl() ?>${group[id]}">${group[id]}</a></code></li>`).join('');
+    ProxatoreGroup.querySelectorAll('ul button.remove').forEach(button => button.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        group.splice(button.parentElement.dataset.id, 1);
+        groupUpdate(group);
+    }));
+    ProxatoreGroup.querySelectorAll('ul button.up').forEach(button => button.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const id = button.parentElement.dataset.id;
+        moveItem(group, id, id-1);
+        groupUpdate(group);
+    }));
+    ProxatoreGroup.querySelectorAll('ul button.down').forEach(button => button.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const id = button.parentElement.dataset.id;
+        moveItem(group, id, id+1);
+        groupUpdate(group);
+    }));
+    ProxatoreGroup.querySelector('ul li:first-of-type button.up').disabled = ProxatoreGroup.querySelector('ul li:last-of-type button.down').disabled = true;
+} else {
+    group = [];
+}
+document.querySelectorAll('.actions').forEach(item => {
+    item.innerHTML += `<button class="button block">Add to Results Group</button>`;
+    item.querySelector('button').addEventListener('click', () => {
+        group.push(item.querySelector('a.internal').getAttribute('href'));
+        groupUpdate(group);
+    });
+});
+})();</script>
 </body>
 </html>
