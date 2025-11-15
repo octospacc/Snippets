@@ -29,7 +29,10 @@ use FastVolt\Helper\Markdown;
 $markdown = Markdown::new();
 
 $instance = 'https://memos.octt.eu.org';
-$footer = "<footer><p><small>Powered by <a href=\"https://memos.octt.eu.org/m/8edpaJ4n4gtdbSZVDcBve3\">MemosViewer.php</a>. [<a href=\"https://gitlab.com/octospacc/Snippets/-/blob/main/MemosViewer.php\">Source Code</a>]</small></p></footer>";
+$footer = '<footer><p><small>
+Powered by <a target="_blank" href="https://memos.octt.eu.org/m/8edpaJ4n4gtdbSZVDcBve3">MemosViewer.php</a>.
+[<a target="_blank" href="https://gitlab.com/octospacc/Snippets/-/blob/main/MemosViewer.php">Source Code</a>]
+</small></p></footer>';
 
 $id = $_GET['id'];
 $uid = $_GET['uid'];
@@ -62,7 +65,7 @@ if ( !$id && !$uid ) {
 		foreach ( $memos as $memo ) {
 			if ( ($uid = uidfromdata($memo)) ) {
 				//$user = explode( '*', explode( 'users/', $memo )[1] )[0];
-				echo "<li><a href=\"{$instance}/m/{$uid}\">${uid}</a></li>";
+				echo "<li><a href=\"{$instance}/m/{$uid}\">{$uid}</a></li>";
 			}
 		}
 		echo "</ul>{$footer}</body></html>";
@@ -135,6 +138,8 @@ foreach ( $htmlparts as $part ) {
 	$content .= '<iframe src="data:text/html;utf8,' . urlencode('<meta charset="utf8"/><style>iframe{width:100%}</style>' . html_entity_decode($inside)) . '"></iframe>' . $after;
 }
 
+$content = str_replace('<a href=', '<a target="_blank" href=', $content);
+
 $nickname = htmlspecialchars($user->nickname);
 $pagetitle = "Memo by {$nickname}";
 $pagedescription = htmlspecialchars($memo->content);
@@ -178,8 +183,8 @@ div.MemosViewer iframe {
 $body = "<div class=\"MemosViewer\">
 <article>
 <header>
-<b>{$nickname}</b> on <span><a href=\"{$instance}/m/{$uid}\">{$memo->displayTime}</a>
-<small>[<a href=\"{$instance}/api/v1/${idoruidendpoint}\">JSON</a>]</small></span>
+<b>{$nickname}</b> on <span><a target=\"_blank\" href=\"{$instance}/m/{$uid}\">{$memo->displayTime}</a>
+<small>[<a target=\"_blank\" rel=\"nofollow\" href=\"{$instance}/api/v1/{$idoruidendpoint}\">JSON</a>]</small></span>
 {$warning}
 </header>
 {$content}
