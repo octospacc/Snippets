@@ -10,18 +10,20 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  *  GNU Affero General Public License for more details.
  *
  *  You should have received a copy of the GNU Affero General Public License
- *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *  along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+
+// Requires php-gd, php-curl, and https://github.com/fastvolt/markdown ❗
 
 // ========================= Configuration ========================= //
 const INSTANCE = 'https://shark.octt.eu.org'; // Cambia con la tua istanza
 const NOTES_LIMIT = 5;
+// ================================================================= //
 
-// <https://github.com/fastvolt/markdown>
 require 'Res/FastVoltMarkdown.php';
 use FastVolt\Helper\Markdown;
 
@@ -58,8 +60,6 @@ function apiPost($endpoint, $data) {
 }
 
 function generateAtomFeed($userId) {
-    // $markdown = Markdown::new();
-
     $notes = apiPost('/api/users/notes', [
         'userId' => $userId,
         'withRenotes' => false,
@@ -76,41 +76,10 @@ function generateAtomFeed($userId) {
         exit;
     }
     
-    // Funzione per convertire MFM in HTML (semplificata)
-    // function mfmToHtml($text) {
-    //     $text = htmlspecialchars($text, ENT_QUOTES | ENT_XML1, 'UTF-8');
-    //     $text = preg_replace('/\*\*(.*?)\*\*/', '<strong>$1</strong>', $text);
-    //     $text = preg_replace('/\*(.*?)\*/', '<em>$1</em>', $text);
-    //     $text = preg_replace('/\[(.*?)\]\((.*?)\)/', '<a href="$2">$1</a>', $text);
-    //     $text = nl2br($text);
-    //     return $text;
-    // }
     function mfmToHtml(string $input): string {
         $input = parseMFM($input);
         if (filter_var($_GET['markdown'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $input;
-    	//global $markdown;
-    	//return $input;
-    	//$text = parseMFM($text);
-    	//for ($i=0; i<strlen($raw); $i++) {
-    		// if (str_ends_with($text, '$[')) {
-    		// 	while ($raw[$i])
-    		// } else 
-    	//	$text .= $raw[$i];
-    	//}
-        /* 
-        $lines = explode("\n", parseMFM($text));
-        for ($i=0; $i<sizeof($lines); $i++) {
-            $line = $lines[$i];
-            $ltrim = ltrim($line);
-            if (str_starts_with($line, '#')) {
-                $lines[$i] = ". $line";
-            } elseif (str_starts_with($ltrim, '>') && $line !== $ltrim) {
-                $lines[$i] = substr($line, 0, strlen($line) - strlen($ltrim)) . "\\$ltrim";
-            }
-            
-        }
-        */
-    	// return Markdown::new()->setContent(implode("\n", $lines))->toHtml();
+
         $inblock = false;
         $output = '';
         foreach (explode("\n", $input) as $line) {
@@ -125,6 +94,7 @@ function generateAtomFeed($userId) {
                     $line = "&#x20;$firstword" . substr($line, strlen($firstword));
                 }
             } else if (!$inblock && str_starts_with($ltram, '>') && $line !== $ltram) {
+                // prevent quoteblocks from forming where they were explicitly avoided
                 $line = substr($line, 0, strlen($line) - strlen($ltram)) . "\\$ltram  ";
                 $patchedquote = true;
             }
@@ -135,50 +105,44 @@ function generateAtomFeed($userId) {
             }
         }
         return Markdown::new()->setContent($output)->toHtml();
-        // return $text;
     }
-    
-function parseMFM(string $input, int &$pos = 0): string {
-    $output = '';
-    $length = strlen($input);
 
-    while ($pos < $length) {
-        $inblock = false;
-        // Detect start of MFM block
-        if ($input[$pos] === '$' && $pos + 1 < $length && $input[$pos + 1] === '[') {
-            $inblock = true;
-            $pos += 2; // Skip "$["
-
-            // Skip feature name
-            while ($pos < $length && preg_match('/\w/', $input[$pos])) {
+    function parseMFM(string $input, int &$pos = 0, bool $inblock = false): string {
+        $output = '';
+        $length = strlen($input);
+        // $inblock = false;
+        while ($pos < $length) {
+            // Detect start of MFM block
+            if ($input[$pos] === '$' && $pos + 1 < $length && $input[$pos + 1] === '[') {
+                // $inblock = true;
+                $pos += 2; // Skip "$["
+                // Skip feature name
+                while ($pos < $length && preg_match('/\w/', $input[$pos])) {
+                    $pos++;
+                }
+                // Skip whitespace
+                while ($pos < $length && ctype_space($input[$pos])) {
+                    $pos++;
+                }
+                // Recursively parse inner content
+                $output .= parseMFM($input, $pos, true);
+            } elseif ($inblock && $input[$pos] === ']') {
+                $pos++; // Skip closing bracket
+                // $inblock = false;
+                return $output;
+            } else {
+                $output .= $input[$pos];
                 $pos++;
             }
-
-            // Skip whitespace
-            while ($pos < $length && ctype_space($input[$pos])) {
-                $pos++;
-            }
-
-            // Recursively parse inner content
-            $output .= parseMFM($input, $pos);
-        } elseif ($inblock && $input[$pos] === ']') {
-            $pos++; // Skip closing bracket
-            return $output;
-        } else {
-            $output .= $input[$pos];
-            $pos++;
         }
+        return $output;
     }
-
-    return $output;
-}
     
     header('Content-Type: application/atom+xml; charset=utf-8');
 
-    // Inizio del feed Atom
     echo '<?xml version="1.0" encoding="utf-8"?>' . "\n";
     ?>
-    <feed xmlns="http://www.w3.org/2005/Atom">
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:mk="https://misskey-hub.net/en/docs/for-developers/api/">
       <title>Note utente Misskey <?= $userId ?></title>
       <link href="<?= htmlspecialchars(selfPrefix() . $_SERVER['REQUEST_URI']) ?>" rel="self" />
       <link href="<?= htmlspecialchars(INSTANCE . '/users/' . $userId) ?>" rel="alternate" type="text/html" />
@@ -188,9 +152,10 @@ function parseMFM(string $input, int &$pos = 0): string {
     <?php foreach ($notes as $note): ?>
       <entry>
         <title><?= htmlspecialchars(substr(strip_tags($note['text'] ?? 'Nota senza testo'), 0, 50)) ?>...</title>
-        <link href="<?= INSTANCE ?>/notes/<?= $note['id'] ?>"/>
+        <link href="<?= INSTANCE ?>/notes/<?= $note['id'] ?>" />
         <id>tag:<?= parse_url(INSTANCE, PHP_URL_HOST) ?>,<?= substr($note['createdAt'], 0, 10) ?>:/notes/<?= $note['id'] ?></id>
-        <updated><?= date(DATE_ATOM, strtotime($note['createdAt'])) ?></updated>
+        <updated><?= date(DATE_ATOM, strtotime($note['updatedAt'] ?? $note['createdAt'])) ?></updated>
+        <published><?= date(DATE_ATOM, strtotime($note['createdAt'])) ?></published>
         <content type="html">
           <![CDATA[
             <?= mfmToHtml($note['text'] ?? '') ?>
@@ -201,12 +166,10 @@ function parseMFM(string $input, int &$pos = 0): string {
                     $url = $file['url'];
                     $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
                     if ($ext === 'jpg' || $ext === 'jpeg' || $ext === 'webp' || $ext === 'png') {
-                    // if (str_ends_with(strtolower($url), '.webp')) {
-                        // $url = preg_replace('/\.webp$/i', '.jpg', $url);
                         $url = selfPrefix() . $_SERVER['DOCUMENT_URI'] . '?media=' . end(explode('/', $url));
                     }
                   ?>
-                  <div><img src="<?= htmlspecialchars($url) ?>" alt="media allegato" style="max-width:100%"/></div>
+                  <div><img src="<?= htmlspecialchars($url) ?>" alt="<?= htmlspecialchars($file['comment']) ?>" style="max-width:100%" /></div>
                 <?php endforeach; ?>
               </div>
             <?php endif; ?>
@@ -214,41 +177,25 @@ function parseMFM(string $input, int &$pos = 0): string {
         </content>
         <author>
           <name><?= htmlspecialchars($note['user']['name'] ?? $note['user']['username']) ?></name>
+          <uri><?= htmlspecialchars(INSTANCE . '/users/' . $note['user']['id']) ?></uri>
         </author>
+        <mk:replyId><?= $note['replyId'] ?></mk:replyId>
+        <mk:renoteCount><?= $note['renoteCount'] ?></mk:renoteCount>
+        <mk:repliesCount><?= $note['repliesCount'] ?></mk:repliesCount>
+        <mk:reactionCount><?= $note['reactionCount'] ?></mk:reactionCount>
       </entry>
     <?php endforeach; ?>
     </feed>
 <?php }
 
-// ----------------------------
-// Funzione: proxy e conversione immagine
 function proxyAndConvertMedia($fileId) {
-    $url = INSTANCE . '/files/' . $fileId;
-    // $ext = strtolower(pathinfo(parse_url($fileId, PHP_URL_PATH), PATHINFO_EXTENSION));
-
-    // // Se è già JPEG, inoltra direttamente
-    // if ($ext === 'jpg' || $ext === 'jpeg') {
-    //     header('Content-Type: image/jpeg');
-    //     header("Location: $url");
-    //     return;
-    // }
-
-    // Scarica il file
-    $imageData = file_get_contents($url);
+    $imageData = file_get_contents(INSTANCE . '/files/' . $fileId);
     if (!$imageData) {
         http_response_code(500);
         echo 'Errore nel download del file.';
         return;
     }
 
-    // // Se è già JPEG, inoltra direttamente
-    // if ($ext === 'jpg' || $ext === 'jpeg') {
-    //     header('Content-Type: image/jpeg');
-    //     echo $imageData;
-    //     return;
-    // }
-
-    // Altrimenti, converti in JPEG
     $image = imagecreatefromstring($imageData);
     if (!$image) {
         http_response_code(500);
