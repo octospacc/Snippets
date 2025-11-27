@@ -21,7 +21,9 @@
 
 // ========================= Configuration ========================= //
 const INSTANCE = 'https://shark.octt.eu.org'; // Cambia con la tua istanza
-const NOTES_LIMIT = 5;
+const NOTES_LIMIT_DEFAULT = 5;
+const NOTES_LIMIT_MAX = 20;
+const UNICODE_HACKS = true;
 // ================================================================= //
 
 require 'Res/FastVoltMarkdown.php';
@@ -67,7 +69,7 @@ function generateAtomFeed($userId) {
         'withChannelNotes' => false,
         'withFiles' => false,
         'allowPartial' => true,
-        'limit' => NOTES_LIMIT,
+        'limit' => max(min(abs(intval($_GET['limit'] ?? 0)), NOTES_LIMIT_MAX), NOTES_LIMIT_DEFAULT),
     ]);
 
     if (!is_array($notes)) {
@@ -75,11 +77,21 @@ function generateAtomFeed($userId) {
         echo 'Errore nel recupero delle note.';
         exit;
     }
+
+    function formatText(array $note): string {
+        $text = $note['text'] ?? '';
+        if ($note['renoteId'] ?? null) {
+            $text = "[[RN]({$note['renoteId']})]\n\n$text";
+        }
+        return mfmToHtml($text);
+    }
     
     function mfmToHtml(string $input): string {
         $input = parseMFM($input);
-        if (filter_var($_GET['markdown'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $input;
-
+        // if (UNICODE_HACKS) {
+        // 	$input = str_replace('...', '…', $input);
+        // }
+        // if (filter_var($_GET['markdown'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $input;
         $inblock = false;
         $output = '';
         foreach (explode("\n", $input) as $line) {
@@ -98,13 +110,40 @@ function generateAtomFeed($userId) {
                 $line = substr($line, 0, strlen($line) - strlen($ltram)) . "\\$ltram  ";
                 $patchedquote = true;
             }
-            $output .= "$line\n";
             if (!$patchedquote && !$inblock) {
-                // the parser won't support Markdown natural-linebreak mode, so add \n's
-                $output .= "\n";
+                // the parser won't support Markdown natural-linebreak mode, so add the famous two spaces
+                $line .= "  ";
+            }
+            if (UNICODE_HACKS && !$inblock) {
+                $line = unicodeHacks($line);
+            }
+            $output .= "$line\n";
+        }
+        if (filter_var($_GET['markdown'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $output;
+        return Markdown::new()->setContent($output)->toHtml();
+    }
+
+    function unicodeHacks(string $text) {
+        $words = explode(' ', $text);
+        for ($i=0; $i<sizeof($words); $i++) {
+            $low = strtolower($words[$i]);
+            $islink = str_starts_with($low, 'http://') || str_starts_with($low, 'https://');
+            $maybelink = str_contains($low, ')') && str_contains($low, '](');
+            if (!$islink && !$maybelink) {
+                foreach([
+                    '...' => '…',
+                    'ffl' => 'ﬄ',
+                    'ffi' => 'ﬃ',
+                    'fl' => 'ﬂ',
+                    'fi' => 'ﬁ',
+                    'ff' => 'ﬀ',
+                    'ij' => 'ĳ',
+                ] as $search => $replace) {
+                    $words[$i] = str_replace($search, $replace, $words[$i]);
+                }
             }
         }
-        return Markdown::new()->setContent($output)->toHtml();
+        return implode(' ', $words);
     }
 
     function parseMFM(string $input, int &$pos = 0, bool $inblock = false): string {
@@ -117,7 +156,7 @@ function generateAtomFeed($userId) {
                 // $inblock = true;
                 $pos += 2; // Skip "$["
                 // Skip feature name
-                while ($pos < $length && preg_match('/\w/', $input[$pos])) {
+                while ($pos < $length && (preg_match('/\w/', $input[$pos]) || in_array($input[$pos], ['.', ',', '=']))) {
                     $pos++;
                 }
                 // Skip whitespace
@@ -148,8 +187,10 @@ function generateAtomFeed($userId) {
       <link href="<?= htmlspecialchars(INSTANCE . '/users/' . $userId) ?>" rel="alternate" type="text/html" />
       <updated><?= date(DATE_ATOM) ?></updated>
       <id>tag:<?= parse_url(INSTANCE, PHP_URL_HOST) ?>,<?= date('Y-m-d') ?>:/feed/<?= htmlspecialchars($userId) ?></id>
+      <generator uri="https://gitlab.com/octospacc/Snippets/-/blob/main/MisskeyFeed.php">MisskeyFeed.php</generator>
     
     <?php foreach ($notes as $note): ?>
+      <?php if (!$note['id']) continue; ?>
       <entry>
         <title><?= htmlspecialchars(substr(strip_tags($note['text'] ?? 'Nota senza testo'), 0, 50)) ?>...</title>
         <link href="<?= INSTANCE ?>/notes/<?= $note['id'] ?>" />
@@ -165,7 +206,7 @@ function generateAtomFeed($userId) {
                   <?php
                     $url = $file['url'];
                     $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
-                    if ($ext === 'jpg' || $ext === 'jpeg' || $ext === 'webp' || $ext === 'png') {
+                    if (in_array($ext, ['jpg', 'jpeg', 'webp', 'png'])) {
                         $url = selfPrefix() . $_SERVER['DOCUMENT_URI'] . '?media=' . end(explode('/', $url));
                     }
                   ?>
