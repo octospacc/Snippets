@@ -50,6 +50,10 @@ function selfPrefix(): string {
     return $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'];
 }
 
+function linkNote(string $noteId) {
+    return INSTANCE . "/notes/$noteId";
+}
+
 function apiPost($endpoint, $data) {
     $url = INSTANCE . $endpoint;
     $ch = curl_init($url);
@@ -80,17 +84,18 @@ function generateAtomFeed($userId) {
 
     function formatText(array $note): string {
         $text = $note['text'] ?? '';
-        if ($note['renoteId'] ?? null) {
-            $text = "[[RN]({$note['renoteId']})]\n\n$text";
+        if ($cw = $note['cw'] ?? null) {
+            $text = "$cw\n\n$text";
+        }
+        if ($renote = $note['renoteId'] ?? null) {
+            $link = linkNote($renote);
+            $text = "[[RN]($link)]\n\n$text";
         }
         return mfmToHtml($text);
     }
     
     function mfmToHtml(string $input): string {
         $input = parseMFM($input);
-        // if (UNICODE_HACKS) {
-        // 	$input = str_replace('...', '…', $input);
-        // }
         // if (filter_var($_GET['markdown'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $input;
         $inblock = false;
         $output = '';
@@ -193,13 +198,13 @@ function generateAtomFeed($userId) {
       <?php if (!$note['id']) continue; ?>
       <entry>
         <title><?= htmlspecialchars(substr(strip_tags($note['text'] ?? 'Nota senza testo'), 0, 50)) ?>...</title>
-        <link href="<?= INSTANCE ?>/notes/<?= $note['id'] ?>" />
+        <link href="<?= linkNote($note['id']) ?>" />
         <id>tag:<?= parse_url(INSTANCE, PHP_URL_HOST) ?>,<?= substr($note['createdAt'], 0, 10) ?>:/notes/<?= $note['id'] ?></id>
         <updated><?= date(DATE_ATOM, strtotime($note['updatedAt'] ?? $note['createdAt'])) ?></updated>
         <published><?= date(DATE_ATOM, strtotime($note['createdAt'])) ?></published>
         <content type="html">
           <![CDATA[
-            <?= mfmToHtml($note['text'] ?? '') ?>
+            <?= formatText($note) ?>
             <?php if (!empty($note['files'])): ?>
               <div class="attachments">
                 <?php foreach ($note['files'] as $file): ?>
