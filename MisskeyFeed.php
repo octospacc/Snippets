@@ -24,20 +24,26 @@ const INSTANCE = 'https://shark.octt.eu.org'; // Cambia con la tua istanza
 const NOTES_LIMIT_DEFAULT = 5;
 const NOTES_LIMIT_MAX = 20;
 const UNICODE_HACKS = true;
+const ONLY_PUBLIC = true;
+const CENSOR_SENSITIVE_IMAGES = true;
+const FONT_PATH = './Res/COMIC.TTF';
 // ================================================================= //
 
 require 'Res/FastVoltMarkdown.php';
 use FastVolt\Helper\Markdown;
 
 // Se è presente il parametro "media", esegui il proxy con conversione
-if (isset($_GET['media'])) {
-    proxyAndConvertMedia($_GET['media']);
+if ($media = $_GET['media'] ?? null) {
+    proxyAndConvertMedia($media);
     exit;
 }
-
+elseif ($media = $_GET['sensitive'] ?? null) {
+    proxyAndConvertMedia($media, true);
+    exit;
+}
 // Se è presente "userId", genera il feed Atom
-if (isset($_GET['userId'])) {
-    generateAtomFeed($_GET['userId']);
+elseif ($userId = $_GET['userId'] ?? null) {
+    generateAtomFeed($userId);
     exit;
 }
 
@@ -195,7 +201,7 @@ function generateAtomFeed($userId) {
       <generator uri="https://gitlab.com/octospacc/Snippets/-/blob/main/MisskeyFeed.php">MisskeyFeed.php</generator>
     
     <?php foreach ($notes as $note): ?>
-      <?php if (!$note['id']) continue; ?>
+      <?php if (!$note['id'] || (ONLY_PUBLIC && $note['visibility'] !== 'public')) continue; ?>
       <entry>
         <title><?= htmlspecialchars(substr(strip_tags($note['text'] ?? 'Nota senza testo'), 0, 50)) ?>...</title>
         <link href="<?= linkNote($note['id']) ?>" />
@@ -209,13 +215,19 @@ function generateAtomFeed($userId) {
               <div class="attachments">
                 <?php foreach ($note['files'] as $file): ?>
                   <?php
+                    $type = explode('/', $file['type'])[0];
                     $url = $file['url'];
-                    $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
-                    if (in_array($ext, ['jpg', 'jpeg', 'webp', 'png'])) {
-                        $url = selfPrefix() . $_SERVER['DOCUMENT_URI'] . '?media=' . end(explode('/', $url));
+                    if ($type === 'image') {
+                        $url = selfPrefix() . $_SERVER['DOCUMENT_URI']
+                            . (CENSOR_SENSITIVE_IMAGES && $file['isSensitive'] ? '?sensitive=' : '?media=')
+                            . end(explode('/', $url));
                     }
                   ?>
-                  <div><img src="<?= htmlspecialchars($url) ?>" alt="<?= htmlspecialchars($file['comment']) ?>" style="max-width:100%" /></div>
+                  <?php if ($type === 'image'): ?>
+                    <a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><img src="<?= htmlspecialchars($url) ?>" alt="<?= htmlspecialchars($file['comment']) ?>" style="max-width:100%" /></a>
+                  <?php elseif ($type === 'video'): ?>
+                    <a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><video src="<?= htmlspecialchars($url) ?>" style="max-width:100%"></video></a>
+                  <?php endif; ?>
                 <?php endforeach; ?>
               </div>
             <?php endif; ?>
@@ -225,7 +237,9 @@ function generateAtomFeed($userId) {
           <name><?= htmlspecialchars($note['user']['name'] ?? $note['user']['username']) ?></name>
           <uri><?= htmlspecialchars(INSTANCE . '/users/' . $note['user']['id']) ?></uri>
         </author>
+        <mk:visibility><?= $note['visibility'] ?></mk:visibility>
         <mk:replyId><?= $note['replyId'] ?></mk:replyId>
+        <mk:renoteId><?= $note['renoteId'] ?></mk:renoteId>
         <mk:renoteCount><?= $note['renoteCount'] ?></mk:renoteCount>
         <mk:repliesCount><?= $note['repliesCount'] ?></mk:repliesCount>
         <mk:reactionCount><?= $note['reactionCount'] ?></mk:reactionCount>
@@ -234,7 +248,7 @@ function generateAtomFeed($userId) {
     </feed>
 <?php }
 
-function proxyAndConvertMedia($fileId) {
+function proxyAndConvertMedia(string $fileId, bool $sensitive = false) {
     $imageData = file_get_contents(INSTANCE . '/files/' . $fileId);
     if (!$imageData) {
         http_response_code(500);
@@ -249,7 +263,93 @@ function proxyAndConvertMedia($fileId) {
         return;
     }
 
-    header('Content-Type: image/jpeg');
-    imagejpeg($image, null, 90);
-    imagedestroy($image);
+    if (!$sensitive) {
+        header('Content-Type: image/jpeg');
+        imagejpeg($image, null, 90);
+        imagedestroy($image);    
+    } else {
+        $width = imagesx($image);
+        $height = imagesy($image);
+        
+        // Create blurred background
+        $background = imagecreatetruecolor($width, $height);
+        imagecopy($background, $image, 0, 0, 0, 0, $width, $height);
+        
+        $smallW = $width / 100;
+        $smallH = $height / 100;
+        $small = imagecreatetruecolor($smallW, $smallH);
+        imagecopyresampled($small, $background, 0, 0, 0, 0, $smallW, $smallH, $width, $height);
+        
+        // Blur the small image
+        // for ($i = 0; $i < 5; $i++) {
+        //     imagefilter($small, IMG_FILTER_GAUSSIAN_BLUR);
+        // }
+        
+        // Upscale back
+        $blurred = imagecreatetruecolor($width, $height);
+        // imageantialias($blurred, true);
+        imagecopyresampled($blurred, $small, 0, 0, 0, 0, $width, $height, $smallW, $smallH);
+
+        // imagefilter($blurred, IMG_FILTER_GAUSSIAN_BLUR);
+        // imagefilter($blurred, IMG_FILTER_GAUSSIAN_BLUR);
+        // imagefilter($blurred, IMG_FILTER_GAUSSIAN_BLUR);
+
+        // Apply blur multiple times for stronger effect
+        // for ($i = 0; $i < 5; $i++) {
+        //     imagefilter($background, IMG_FILTER_SELECTIVE_BLUR);
+        // }
+        // imageconvolution($background, [[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]], 16, 0);
+
+        // Create new canvas
+        $canvas = imagecreatetruecolor($width, $height);
+        imagecopy($canvas, $blurred, 0, 0, 0, 0, $width, $height);
+        
+        // Resize original image to small thumbnail
+        $thumbSize = min($width, $height) / 2;
+        $thumb = imagecreatetruecolor($thumbSize, $thumbSize);
+        // imagecopyresampled($thumb, $image, 0, 0, 0, 0, $thumbSize, $thumbSize, $width, $height);
+        
+        // Center the thumbnail
+        $thumbX = ($width - $thumbSize) / 2;
+        $thumbY = ($height - $thumbSize) / 2;
+        // imagecopy($canvas, $thumb, $thumbX, $thumbY, 0, 0, $thumbSize, $thumbSize);
+        
+        // Text settings
+        $topText = "Sensitive\nContent";
+        $bottomText = "Open source link\nto view original image.";
+        $white = imagecolorallocate($canvas, 255, 255, 255);
+        $black = imagecolorallocate($canvas, 0, 0, 0);
+        
+        // Function to draw text with outline
+        function drawTextWithOutline($img, $size, $outlineSize, $angle, $x, $y, $text, $font, $textColor, $outlineColor) {
+            for ($ox = -$outlineSize; $ox <= $outlineSize; $ox++) {
+                for ($oy = -$outlineSize; $oy <= $outlineSize; $oy++) {
+                    imagettftext($img, $size, $angle, $x + $ox, $y + $oy, $outlineColor, $font, $text);
+                }
+            }
+            imagettftext($img, $size, $angle, $x, $y, $textColor, $font, $text);
+        }
+        
+        // Draw top text (larger)
+        $topFontSize = 160;
+        $topBox = imagettfbbox($topFontSize, 0, FONT_PATH, $topText);
+        $topX = ($width - ($topBox[2] - $topBox[0])) / 2;
+        $topY = $thumbY - 20;
+        drawTextWithOutline($canvas, $topFontSize, 8, 0, $topX, $topY, $topText, FONT_PATH, $white, $black);
+        
+        // Draw bottom text (smaller)
+        $bottomFontSize = 64;
+        $bottomBox = imagettfbbox($bottomFontSize, 0, FONT_PATH, $bottomText);
+        $bottomX = ($width - ($bottomBox[2] - $bottomBox[0])) / 2;
+        $bottomY = $thumbY + $thumbSize + 40;
+        drawTextWithOutline($canvas, $bottomFontSize, 4, 0, $bottomX, $bottomY, $bottomText, FONT_PATH, $white, $black);
+        
+        // Output the final image
+        header('Content-Type: image/jpeg');
+        imagejpeg($canvas);
+        imagedestroy($image);
+        imagedestroy($background);
+        imagedestroy($thumb);
+        imagedestroy($canvas);
+    }
 }

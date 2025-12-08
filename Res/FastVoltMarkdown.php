@@ -10,7 +10,7 @@ class ParseMarkdown
 
     protected bool $safeMode;
 
-    protected mixed $markupEscaped = false;
+    protected mixed $markupEscaped = true;
 
     protected const version = '1.7.4';
 
