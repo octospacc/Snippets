@@ -19,37 +19,33 @@
 
 // Requires php-gd, php-curl, and https://github.com/fastvolt/markdown ❗
 
-// ========================= Configuration ========================= //
+// ============================= Configuration ============================= //
 const INSTANCE = 'https://shark.octt.eu.org'; // Cambia con la tua istanza
 const NOTES_LIMIT_DEFAULT = 5;
-const NOTES_LIMIT_MAX = 20;
+const NOTES_LIMIT_MAX = 25;
+const WITH_SELF_REPLIES = true;
 const UNICODE_HACKS = true;
 const ONLY_PUBLIC = true;
 const CENSOR_SENSITIVE_IMAGES = true;
 const FONT_PATH = './Res/COMIC.TTF';
-// ================================================================= //
+// ========================================================================= //
+
+const SOURCE_CODE = 'https://gitlab.com/octospacc/Snippets/-/blob/main/MisskeyFeed.php';
 
 require 'Res/FastVoltMarkdown.php';
 use FastVolt\Helper\Markdown;
 
-// Se è presente il parametro "media", esegui il proxy con conversione
-if ($media = $_GET['media'] ?? null) {
-    proxyAndConvertMedia($media);
-    exit;
-}
-elseif ($media = $_GET['sensitive'] ?? null) {
-    proxyAndConvertMedia($media, true);
-    exit;
-}
-// Se è presente "userId", genera il feed Atom
-elseif ($userId = $_GET['userId'] ?? null) {
+if ($userId = $_GET['userId'] ?? null) {
     generateAtomFeed($userId);
-    exit;
+} elseif ($media = $_GET['media'] ?? null) {
+    proxyAndConvertMedia($media);
+} elseif ($media = $_GET['sensitive'] ?? null) {
+    proxyAndConvertMedia($media, true);
+} else {
+    http_response_code(400);
+    echo "<p>Error: specify at least 'userId' o 'media' query parameters.</p>
+        <p><small><a href='" . SOURCE_CODE . "' target='_blank'>MisskeyFeed.php</a></small></p>";
 }
-
-// Altrimenti, errore
-http_response_code(400);
-echo 'Errore: specificare almeno "userId" o "media".';
 exit;
 
 function selfPrefix(): string {
@@ -72,10 +68,15 @@ function apiPost($endpoint, $data) {
 }
 
 function generateAtomFeed($userId) {
+    $censorSensitiveImages = filter_var($_GET['censorSensitiveImages'] ?? CENSOR_SENSITIVE_IMAGES, FILTER_VALIDATE_BOOLEAN);
+    $lengthFilter = abs(filter_var($_GET['lengthFilter'] ?? null, FILTER_VALIDATE_INT) ?? 0); // only supports filtering for notes LESS than length for now
+    $forceTags = explode(',', strtolower($_GET['forceTags'] ?? ''));
+
     $notes = apiPost('/api/users/notes', [
         'userId' => $userId,
         'withRenotes' => false,
         'withReplies' => false,
+        // 'withRepliesToSelf' => true, // $_GET['withRepliesToSelf'] ?? WITH_REPLIES_TO_SELF,
         'withChannelNotes' => false,
         'withFiles' => false,
         'allowPartial' => true,
@@ -88,21 +89,25 @@ function generateAtomFeed($userId) {
         exit;
     }
 
-    function formatText(array $note): string {
+    function formatText(array $note, bool $html): string {
         $text = $note['text'] ?? '';
         if ($cw = $note['cw'] ?? null) {
             $text = "$cw\n\n$text";
         }
-        if ($renote = $note['renoteId'] ?? null) {
-            $link = linkNote($renote);
-            $text = "[[RN]($link)]\n\n$text";
+        if ($html) {
+            if ($renote = $note['renoteId'] ?? null) {
+                $link = linkNote($renote);
+                $text = "[[RN]($link)]\n\n$text";
+            }
+            return mfmToHtml($text);
+        } else {
+            return parseMFM($text);
         }
-        return mfmToHtml($text);
     }
     
     function mfmToHtml(string $input): string {
         $input = parseMFM($input);
-        // if (filter_var($_GET['markdown'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $input;
+        if (filter_var($_GET['plaintext'] ?? '', FILTER_VALIDATE_BOOLEAN)) return $input;
         $inblock = false;
         $output = '';
         foreach (explode("\n", $input) as $line) {
@@ -160,11 +165,9 @@ function generateAtomFeed($userId) {
     function parseMFM(string $input, int &$pos = 0, bool $inblock = false): string {
         $output = '';
         $length = strlen($input);
-        // $inblock = false;
         while ($pos < $length) {
             // Detect start of MFM block
             if ($input[$pos] === '$' && $pos + 1 < $length && $input[$pos + 1] === '[') {
-                // $inblock = true;
                 $pos += 2; // Skip "$["
                 // Skip feature name
                 while ($pos < $length && (preg_match('/\w/', $input[$pos]) || in_array($input[$pos], ['.', ',', '=']))) {
@@ -178,7 +181,6 @@ function generateAtomFeed($userId) {
                 $output .= parseMFM($input, $pos, true);
             } elseif ($inblock && $input[$pos] === ']') {
                 $pos++; // Skip closing bracket
-                // $inblock = false;
                 return $output;
             } else {
                 $output .= $input[$pos];
@@ -186,6 +188,24 @@ function generateAtomFeed($userId) {
             }
         }
         return $output;
+    }
+
+    function checkLengthLimit(string $text, int $limit): bool {
+        return !($limit && strlen($text) > $limit);
+    }
+
+    function checkTags(string $text, array $tags): bool {
+        foreach (["\t", "\n", '/', '(', ')'] as $search) {
+            $text = str_replace($search, ' ', $text);
+        }
+        foreach (explode(' ', strtolower($text)) as $word) {
+            foreach ($tags as $tag) {
+                if ($word === "#$tag") {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     
     header('Content-Type: application/atom+xml; charset=utf-8');
@@ -198,10 +218,17 @@ function generateAtomFeed($userId) {
       <link href="<?= htmlspecialchars(INSTANCE . '/users/' . $userId) ?>" rel="alternate" type="text/html" />
       <updated><?= date(DATE_ATOM) ?></updated>
       <id>tag:<?= parse_url(INSTANCE, PHP_URL_HOST) ?>,<?= date('Y-m-d') ?>:/feed/<?= htmlspecialchars($userId) ?></id>
-      <generator uri="https://gitlab.com/octospacc/Snippets/-/blob/main/MisskeyFeed.php">MisskeyFeed.php</generator>
+      <generator uri="<?= SOURCE_CODE ?>">MisskeyFeed.php</generator>
     
     <?php foreach ($notes as $note): ?>
-      <?php if (!$note['id'] || (ONLY_PUBLIC && $note['visibility'] !== 'public')) continue; ?>
+      <?php
+        $plaintext = formatText($note, false);
+        $force = checkTags($plaintext, $forceTags);
+        if (!$note['id'] ||
+            (ONLY_PUBLIC && $note['visibility'] !== 'public') ||
+            (filter_var($_GET['withSelfReplies'] ?? WITH_SELF_REPLIES, FILTER_VALIDATE_BOOLEAN) === false && $note['replyId'] && !$force) ||
+            (!checkLengthLimit($plaintext, $lengthFilter) && !$force)
+        ) continue; ?>
       <entry>
         <title><?= htmlspecialchars(substr(strip_tags($note['text'] ?? 'Nota senza testo'), 0, 50)) ?>...</title>
         <link href="<?= linkNote($note['id']) ?>" />
@@ -210,7 +237,7 @@ function generateAtomFeed($userId) {
         <published><?= date(DATE_ATOM, strtotime($note['createdAt'])) ?></published>
         <content type="html">
           <![CDATA[
-            <?= formatText($note) ?>
+            <?= formatText($note, true) ?>
             <?php if (!empty($note['files'])): ?>
               <div class="attachments">
                 <?php foreach ($note['files'] as $file): ?>
@@ -219,14 +246,18 @@ function generateAtomFeed($userId) {
                     $url = $file['url'];
                     if ($type === 'image') {
                         $url = selfPrefix() . $_SERVER['DOCUMENT_URI']
-                            . (CENSOR_SENSITIVE_IMAGES && $file['isSensitive'] ? '?sensitive=' : '?media=')
+                            . ($censorSensitiveImages && $file['isSensitive'] ? '?sensitive=' : '?media=')
                             . end(explode('/', $url));
                     }
                   ?>
                   <?php if ($type === 'image'): ?>
-                    <a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><img src="<?= htmlspecialchars($url) ?>" alt="<?= htmlspecialchars($file['comment']) ?>" style="max-width:100%" /></a>
+                    <p><a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><img src="<?= htmlspecialchars($url) ?>" alt="<?= htmlspecialchars($file['comment']) ?>" style="max-width:100%" /></a></p>
                   <?php elseif ($type === 'video'): ?>
-                    <a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><video src="<?= htmlspecialchars($url) ?>" style="max-width:100%"></video></a>
+                    <p><a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><video src="<?= htmlspecialchars($url) ?>" style="max-width:100%"></video></a></p>
+                  <?php elseif ($type === 'audio'): ?>
+                    <p><a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><audio src="<?= htmlspecialchars($url) ?>" style="max-width:100%"></audio></a></p>
+                  <?php else: ?>
+                    <p><a href="<?= htmlspecialchars($file['url']) ?>" target="_blank"><?= htmlspecialchars($file['name']) ?></a></p>
                   <?php endif; ?>
                 <?php endforeach; ?>
               </div>
@@ -237,6 +268,9 @@ function generateAtomFeed($userId) {
           <name><?= htmlspecialchars($note['user']['name'] ?? $note['user']['username']) ?></name>
           <uri><?= htmlspecialchars(INSTANCE . '/users/' . $note['user']['id']) ?></uri>
         </author>
+        <?php foreach ($note['tags'] ?? [] as $tag): ?>
+          <category term="<?= $tag ?>" />
+        <?php endforeach; ?>
         <mk:visibility><?= $note['visibility'] ?></mk:visibility>
         <mk:replyId><?= $note['replyId'] ?></mk:replyId>
         <mk:renoteId><?= $note['renoteId'] ?></mk:renoteId>
