@@ -195,7 +195,7 @@ function generateAtomFeed($userId) {
     }
 
     function checkTags(string $text, array $tags): bool {
-        foreach (["\t", "\n", '/', '(', ')'] as $search) {
+        foreach (["\t", "\n", '.', ',', '/', '(', ')', '*'] as $search) {
             $text = str_replace($search, ' ', $text);
         }
         foreach (explode(' ', strtolower($text)) as $word) {

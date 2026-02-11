@@ -105,6 +105,20 @@ $idoruidendpoint = ($uid ? "memos:by-uid/{$uid}" : "memos/{$id}");
 $memo = json_decode(file_get_contents("{$instance}/api/v1/{$idoruidendpoint}")); // post-v0.22.4
 $user = json_decode(file_get_contents("{$instance}/api/v1/{$memo->creator}"));
 
+if ( $_GET['structure'] === 'redirect' ) {
+	$words = explode( ' ', str_replace( ["\t", "\n"], ' ', trim( $memo->content ) ) );
+	if ( sizeof($words) === 1 ) {
+		$url = $words[0];
+		$low = strtolower( $url );
+		if ( str_starts_with( $low, 'http://' ) || str_starts_with( $low, 'https://' ) ) {
+			header( "Location: {$url}" );
+			die();
+		}
+	}
+	header( "Location: /m/{$uid}" );
+	die();
+}
+
 // patch Markdown before parsing it, so output is quasi-consistent with Memos
 $content = '';
 $inblock = false;
@@ -141,19 +155,19 @@ foreach ( $htmlparts as $part ) {
 $content = str_replace('<a href=', '<a target="_blank" href=', $content);
 
 $nickname = htmlspecialchars($user->nickname);
-$pagetitle = "Memo by {$nickname}";
 $pagedescription = htmlspecialchars($memo->content);
+$pagetitle = substr(explode("\n", trim($pagedescription))[0], 0, 50) . "... | Memo by {$nickname}";
 $htmlimage = implode( '', array_slice( explode( '"', implode( '', array_slice( explode( '<img src="', $content ), 1 ) ) ), 0, 1 ) );
 if ( $htmlimage ) {
-	$htmlimage = "<meta property=\"og:image\" content=\"{$htmlimage}\"/>";
+	$htmlimage = "<meta property=\"og:image\" name=\"twitter:image\" content=\"{$htmlimage}\" />";
 }
 
 $meta = "
 <title>{$pagetitle}</title>
-<meta property=\"og:title\" content=\"{$pagetitle}\"/>
-<meta property=\"og:site_name\" content=\"Memos\"/>
-<meta property=\"og:description\" content=\"{$pagedescription}\"/>
-<meta name=\"description\" content=\"{$pagedescription}\"/>
+<meta property=\"og:title\" name=\"twitter:title\" content=\"{$pagetitle}\" />
+<meta property=\"og:site_name\" content=\"Memos\" />
+<meta property=\"og:description\" name=\"twitter:description\" content=\"{$pagedescription}\" />
+<meta name=\"description\" content=\"{$pagedescription}\" />
 {$htmlimage}
 <style>
 body {
