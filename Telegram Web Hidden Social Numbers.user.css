@@ -2,7 +2,7 @@
 @name           Telegram Web Hidden Social Numbers
 @description    Hides social-like numbers on Telegram Web(A/K), like views, reactions, comments, members, etc...
 @namespace      https://www.octt.eu.org/
-@version        1.0.2
+@version        1.0.3
 @author         OctoSpacc
 @license        ISC
 ==/UserStyle== */
@@ -27,6 +27,9 @@
 	
 	/* Chat members status header line */
 	.ChatInfo .group-status { display: none !important; }
+	
+	/* Chat forward list members line */
+	.Modal.ChatOrUserPicker .ChatOrUserPicker-item .OYmzCSp2 { display: none !important; }
 
 }
 
@@ -41,7 +44,7 @@
 	/* Channel message comments text (+icons) */
 	.bubble .replies.replies-footer {
 		.replies-footer-icon-comments,
-		.replies-footer-avatars { display: none; }
+		.replies-footer-avatars { display: none !important; }
 		.replies-footer-text { visibility: hidden !important; }
 		.replies-footer-text:before { visibility: visible !important; content: "💬 Comments"; }
 	}
@@ -50,9 +53,11 @@
 	.bubble .reactions .reaction .reaction-counter { display: none !important; }
 	
 	/* Chat header line */
-	.chat-info .info { display: none !important; }
+	.chat-info .info .i18n { display: none !important; }
 	
 	/* Chat search list members line */
-	.search-super .chatlist .row .row-subtitle-row .i18n { display: none !important; }
+	.search-super, .selector {
+		.chatlist .row .row-subtitle-row .i18n { display: none !important; }
+	}
 
 }
