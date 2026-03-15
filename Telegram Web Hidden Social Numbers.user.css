@@ -1,8 +1,8 @@
 /* ==UserStyle==
 @name           Telegram Web Hidden Social Numbers
-@description    Hides social-like numbers on Telegram Web(A), like views, reactions, comments, members, etc...
+@description    Hides social-like numbers on Telegram Web(A/K), like views, reactions, comments, members, etc...
 @namespace      https://www.octt.eu.org/
-@version        1.0.1
+@version        1.0.2
 @author         OctoSpacc
 @license        ISC
 ==/UserStyle== */
@@ -15,7 +15,7 @@
 		.icon-channelviews { display: none !important; }
 	}
 	
-	/* Cannel message comments number (+icons) */
+	/* Channel message comments number (+icons) */
 	.Message .CommentButton {
 		.label > span,
 		.icon-comments,
@@ -25,7 +25,34 @@
 	/* Message reaction numbers */
 	.Message .Reactions .Button > span { display: none !important; }
 	
-	/* Chat header line */
+	/* Chat members status header line */
 	.ChatInfo .group-status { display: none !important; }
+
+}
+
+@-moz-document url-prefix("https://web.telegram.org/k/") {
+	
+	/* Channel message views */
+	.bubble .time {
+		.post-views,
+		.time-icon-views { display: none !important; }
+	}
+	
+	/* Channel message comments text (+icons) */
+	.bubble .replies.replies-footer {
+		.replies-footer-icon-comments,
+		.replies-footer-avatars { display: none; }
+		.replies-footer-text { visibility: hidden !important; }
+		.replies-footer-text:before { visibility: visible !important; content: "💬 Comments"; }
+	}
+	
+	/* Message reaction numbers */
+	.bubble .reactions .reaction .reaction-counter { display: none !important; }
+	
+	/* Chat header line */
+	.chat-info .info { display: none !important; }
+	
+	/* Chat search list members line */
+	.search-super .chatlist .row .row-subtitle-row .i18n { display: none !important; }
 
 }
