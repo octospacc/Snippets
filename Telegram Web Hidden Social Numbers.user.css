@@ -1,0 +1,24 @@
+/* ==UserStyle==
+@name           Telegram Web Hidden Social Numbers
+@description    Hides social-like numbers on Telegram Web(A), like views, reactions, members, etc...
+@namespace      https://www.octt.eu.org/
+@version        1.0.0
+@author         OctoSpacc
+@license        ISC
+==/UserStyle== */
+
+@-moz-document url-prefix("https://web.telegram.org/a/") {
+	.Message .MessageMeta,
+	.Message .CommentButton,
+	.Message .Reactions,
+	.ChatInfo
+	{
+		.message-views, .icon-channelviews,              /* Channel message views */
+		.label > span, .icon-comments, .recent-repliers, /* Cannel message comments number (+icons) */
+		.Button > span,                                  /* Message reaction numbers */
+		.group-status                                    /* Chat header line */
+		{
+			display: none !important;
+		}
+	}
+}
